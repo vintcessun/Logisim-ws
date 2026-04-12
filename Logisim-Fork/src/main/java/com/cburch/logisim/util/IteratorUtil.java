@@ -119,6 +119,7 @@ public class IteratorUtil {
 		return new ArrayIterator<E>(data);
 	}
 
+	@SuppressWarnings("unchecked")
 	public static <E> Iterator<E> createJoinedIterator(Iterator<? extends E> i0, Iterator<? extends E> i1) {
 		if (!i0.hasNext()) {
 			Iterator<E> ret = (Iterator<E>) i1;

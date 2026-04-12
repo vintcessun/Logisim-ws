@@ -64,7 +64,7 @@ class ForkOptions extends OptionsPanel {
 	private MyListener myListener = new MyListener();
 
 	private PrefBoolean[] checks;
-	private PrefOptionList updates, lookAndFeel;
+	private PrefOptionList lookAndFeel;
 	private JTextField libraryFolderField = new JTextField(40);
 	private JButton selectFolderButton = new JButton();
 	private PrefBoolean loadLibrariesFolderAtStartup = new PrefBoolean(AppPreferences.LOAD_LIBRARIES_FOLDER_AT_STARTUP,
@@ -76,11 +76,6 @@ class ForkOptions extends OptionsPanel {
 				new PrefBoolean(AppPreferences.FILL_COMPONENT_BACKGROUND, Strings.getter("FillComponentBackground")),
 				new PrefBoolean(AppPreferences.NEW_TOOLBAR, Strings.getter("UseSimpleToolbar")),
 				loadLibrariesFolderAtStartup };
-
-		updates = new PrefOptionList(AppPreferences.AUTO_UPDATES, Strings.getter("AutoUpdates"),
-				new PrefOption[] { new PrefOption(AppPreferences.ALWAYS, Strings.getter("Always")),
-						new PrefOption(AppPreferences.ASKME, Strings.getter("AskMe")), new PrefOption(AppPreferences.NO,
-								new LocaleManager("resources/logisim", "data").getter("booleanFalseOption")) });
 
 		lookAndFeel = new PrefOptionList(AppPreferences.LOOK_AND_FEEL, Strings.getter("lookAndFeel"),
 				new PrefOption[] { new PrefOption(AppPreferences.SYSTEM, Strings.getter("systemLookAndFeel")),
@@ -97,23 +92,12 @@ class ForkOptions extends OptionsPanel {
 
 		GridBagLayout gridbag = new GridBagLayout();
 		GridBagConstraints gbc = new GridBagConstraints();
-		// auto updates
 		setLayout(gridbag);
 		int margin = 5;
 		Insets sinistra = new Insets(0, margin, 0, 0);
 		Insets destra = new Insets(0, 0, 0, margin);
-		gbc.insets = sinistra;
 		gbc.anchor = GridBagConstraints.WEST;
 		gbc.fill = GridBagConstraints.HORIZONTAL;
-		gbc.gridx = 0;
-		gbc.gridy = GridBagConstraints.RELATIVE;
-		gridbag.setConstraints(updates.getJLabel(), gbc);
-		add(updates.getJLabel());
-		gbc.insets = destra;
-		gbc.gridx++;
-		gridbag.setConstraints(updates.getJComboBox(), gbc);
-		add(updates.getJComboBox());
-
 		// theme / layout
 		gbc.insets = sinistra;
 		gbc.gridx = 0;
@@ -160,7 +144,6 @@ class ForkOptions extends OptionsPanel {
 
 	@Override
 	public void localeChanged() {
-		updates.localeChanged();
 		lookAndFeel.localeChanged();
 		for (int i = 0; i < checks.length; i++) {
 			checks[i].localeChanged();

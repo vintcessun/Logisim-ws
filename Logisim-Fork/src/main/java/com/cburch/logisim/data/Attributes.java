@@ -357,6 +357,7 @@ public class Attributes {
 				boolean isSelected, boolean cellHasFocus) {
 			Component ret = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
 			if (ret instanceof JLabel) {
+				@SuppressWarnings("unchecked")
 				V val = (V) value;
 				((JLabel) ret).setText(value == null ? "" : attr.toDisplayString(val));
 			}

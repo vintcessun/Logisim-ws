@@ -43,6 +43,7 @@ class ProbeAttributes extends AbstractAttributeSet {
 	}
 
 	@Override
+	@SuppressWarnings("unchecked")
 	public <E> E getValue(Attribute<E> attr) {
 		if (attr == StdAttr.FACING)
 			return (E) facing;

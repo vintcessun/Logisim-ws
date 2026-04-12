@@ -43,6 +43,7 @@ public class MatchingSet<E extends CanvasObject> extends AbstractSet<E> {
 		}
 
 		@Override
+		@SuppressWarnings("unchecked")
 		public boolean equals(Object other) {
 			Member<E> that = (Member<E>) other;
 			return this.value.matches(that.value);
@@ -73,6 +74,7 @@ public class MatchingSet<E extends CanvasObject> extends AbstractSet<E> {
 	}
 
 	@Override
+	@SuppressWarnings("unchecked")
 	public boolean contains(Object value) {
 		E eValue = (E) value;
 		return set.contains(new Member<E>(eValue));
@@ -84,6 +86,7 @@ public class MatchingSet<E extends CanvasObject> extends AbstractSet<E> {
 	}
 
 	@Override
+	@SuppressWarnings("unchecked")
 	public boolean remove(Object value) {
 		E eValue = (E) value;
 		return set.remove(new Member<E>(eValue));

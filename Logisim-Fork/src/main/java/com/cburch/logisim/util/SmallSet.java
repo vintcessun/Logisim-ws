@@ -27,6 +27,7 @@ public class SmallSet<E> extends AbstractSet<E> {
 		}
 
 		@Override
+		@SuppressWarnings("unchecked")
 		public E next() {
 			if (itVersion != version) {
 				throw new ConcurrentModificationException();
@@ -120,6 +121,7 @@ public class SmallSet<E> extends AbstractSet<E> {
 	}
 
 	@Override
+	@SuppressWarnings("unchecked")
 	public boolean add(E value) {
 		int oldSize = size;
 		Object oldValues = values;
@@ -187,6 +189,7 @@ public class SmallSet<E> extends AbstractSet<E> {
 	}
 
 	@Override
+	@SuppressWarnings("unchecked")
 	public SmallSet<E> clone() {
 		SmallSet<E> ret = new SmallSet<E>();
 		ret.size = this.size;
@@ -205,6 +208,7 @@ public class SmallSet<E> extends AbstractSet<E> {
 	}
 
 	@Override
+	@SuppressWarnings("unchecked")
 	public boolean contains(Object value) {
 		if (size <= 2) {
 			if (size == 0) {
@@ -235,6 +239,7 @@ public class SmallSet<E> extends AbstractSet<E> {
 	}
 
 	@Override
+	@SuppressWarnings("unchecked")
 	public Iterator<E> iterator() {
 		if (size <= HASH_POINT) {
 			if (size == 0) {

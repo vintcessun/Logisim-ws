@@ -38,7 +38,6 @@ class MenuHelp extends JMenu implements ActionListener {
 	private JMenuItem library = new JMenuItem();
 	private JMenuItem bug = new JMenuItem();
 	private JMenuItem forum = new JMenuItem();
-	private JMenuItem update = new JMenuItem();
 	private JMenuItem about = new JMenuItem();
 	private HelpSet helpSet;
 	private String helpSetUrl = "";
@@ -56,7 +55,6 @@ class MenuHelp extends JMenu implements ActionListener {
 		library.addActionListener(this);
 		bug.addActionListener(this);
 		forum.addActionListener(this);
-		update.addActionListener(this);
 		about.addActionListener(this);
 
 		add(tutorial);
@@ -66,8 +64,6 @@ class MenuHelp extends JMenu implements ActionListener {
 			addSeparator();
 			add(bug);
 			add(forum);
-			addSeparator();
-			add(update);
 			add(about);
 		}
 	}
@@ -97,17 +93,6 @@ class MenuHelp extends JMenu implements ActionListener {
 			} catch (URISyntaxException e1) {
 				e1.printStackTrace();
 			}
-		} else if (src == update) {
-			Startup startup = new Startup(true);
-			if (startup.autoUpdate(false, menubar.getProject().getFrame())) {
-				/*
-				 * if (AppPreferences.SEND_DATA.getBoolean()) Startup.runRemotePhpCode(
-				 * "http://logisim.altervista.org/LogisimData/Autoupdates/autoupdates.php?val=1"
-				 * );
-				 */
-				Startup.restart(Main.OpenedFiles.toArray(new String[0]));
-			}
-
 		} else if (src == about) {
 			About.showAboutDialog(menubar.getParentWindow());
 		}
@@ -167,7 +152,6 @@ class MenuHelp extends JMenu implements ActionListener {
 		bug.setText(Strings.get("ReportBug"));
 		forum.setText(Strings.get("Forum"));
 		about.setText(Strings.get("helpAboutItem"));
-		update.setText(Strings.get("CheckUpdates"));
 		if (helpFrame != null) {
 			helpFrame.setLocale(Locale.getDefault());
 			loadBroker();

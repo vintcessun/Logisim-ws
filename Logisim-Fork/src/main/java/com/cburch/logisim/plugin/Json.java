@@ -2,6 +2,7 @@ package com.cburch.logisim.plugin;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.Charset;
@@ -72,7 +73,7 @@ public class Json{
 		String json="";
 		PlugIn[] pluginArray;
 		try {
-			URLConnection connection = new URL(plugInJsonLink).openConnection();
+			URLConnection connection = URI.create(plugInJsonLink).toURL().openConnection();
 			connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.11 (KHTML, like Gecko) Chrome/23.0.1271.95 Safari/537.11");
 			connection.connect();
 			BufferedReader br  = new BufferedReader(new InputStreamReader(connection.getInputStream(), Charset.forName("UTF-8")));

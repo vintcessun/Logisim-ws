@@ -39,6 +39,7 @@ abstract class AbstractPrefMonitor<E> implements PrefMonitor<E> {
 	}
 
 	@Override
+	@SuppressWarnings("unchecked")
 	public void setBoolean(boolean value) {
 		E valObj = (E) Boolean.valueOf(value);
 		set(valObj);

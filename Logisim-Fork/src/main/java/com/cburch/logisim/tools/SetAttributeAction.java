@@ -69,6 +69,7 @@ public class SetAttributeAction extends Action {
 		return comps.isEmpty();
 	}
 
+	@SuppressWarnings("unchecked")
 	public void set(Component comp, Attribute<?> attr, Object value) {
 		Attribute<Object> a = (Attribute<Object>) attr;
 		comps.add(comp);

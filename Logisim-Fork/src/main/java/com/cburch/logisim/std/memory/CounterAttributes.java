@@ -60,6 +60,7 @@ class CounterAttributes extends AbstractAttributeSet {
 	}
 
 	@Override
+	@SuppressWarnings("unchecked")
 	public <V> void setValue(Attribute<V> attr, V value) {
 		Object oldValue = base.getValue(attr);
 		if (oldValue == null ? value == null : oldValue.equals(value))

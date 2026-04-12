@@ -492,6 +492,7 @@ public class TableSorter extends AbstractTableModel {
 		if (comparator == null) {
 			columnComparators.remove(type);
 		} else {
+			@SuppressWarnings("unchecked")
 			Comparator<Object> castComparator = (Comparator<Object>) comparator;
 			columnComparators.put(type, castComparator);
 		}

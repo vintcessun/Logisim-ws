@@ -6,3 +6,5 @@ target/
 /.classpath
 /.vscode/
 /.idea/
+/build/
+/.gradle

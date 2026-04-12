@@ -243,7 +243,7 @@ public class PluginUtils {
 	public static void downloadPlugin(String link) {
 		String name= link.substring(link.lastIndexOf('/') + 1);
 	      try {
-	    	  URLConnection connection = new URL(link).openConnection();
+	    	  URLConnection connection = URI.create(link).toURL().openConnection();
 	    	  connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.11 (KHTML, like Gecko) Chrome/23.0.1271.95 Safari/537.11");
 	    	  connection.connect();
 	    	  InputStream inputStream = connection.getInputStream();

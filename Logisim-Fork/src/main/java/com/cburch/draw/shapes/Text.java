@@ -91,6 +91,7 @@ public class Text extends AbstractCanvasObject {
 	}
 
 	@Override
+	@SuppressWarnings("unchecked")
 	public <V> V getValue(Attribute<V> attr) {
 		if (attr == DrawAttr.FONT) {
 			return (V) label.getFont();

@@ -55,7 +55,7 @@ public class AppPreferences {
 
 			String localeStr = this.get();
 			if (localeStr != null && !localeStr.equals("")) {
-				LocaleManager.setLocale(new Locale(localeStr));
+				LocaleManager.setLocale(Locale.of(localeStr));
 			}
 			LocaleManager.addLocaleListener(myListener);
 			myListener.localeChanged();
@@ -213,11 +213,6 @@ public class AppPreferences {
 			new PrefMonitorBoolean("LoadLibrariesAtStartup", false));
 	public static final String LIBRARIES_FOLDER_PATH = "LibrariesFolderPath";
 	private static File LibrariesFolder = null;
-	public static final String ALWAYS = "Always";
-	public static final String ASKME = "Ask Me";
-	public static final String NO = "No";
-	public static final PrefMonitor<String> AUTO_UPDATES = create(
-			new PrefMonitorStringOpts("AutoUpdates", new String[] { ALWAYS, ASKME, NO }, ASKME));
 	public static final String SYSTEM = UIManager.getSystemLookAndFeelClassName();
 	public static final String NIMBUS = NimbusLookAndFeel.class.getName();
 	public static final String METAL = MetalLookAndFeel.class.getName();

@@ -57,6 +57,7 @@ public class XmlIterator<E extends Node> implements Iterable<E>, Iterator<E>, Cl
 	@Override
 	public XmlIterator<E> clone() {
 		try {
+			@SuppressWarnings("unchecked")
 			XmlIterator<E> ret = (XmlIterator<E>) super.clone();
 			return ret;
 		} catch (CloneNotSupportedException e) {
@@ -83,6 +84,7 @@ public class XmlIterator<E extends Node> implements Iterable<E>, Iterator<E>, Cl
 			throw new NoSuchElementException();
 		} else {
 			index++;
+			@SuppressWarnings("unchecked")
 			E ret2 = (E) ret;
 			return ret2;
 		}

@@ -54,11 +54,13 @@ public class MoveResult {
 		return unsatisfiedConnections;
 	}
 
+	@SuppressWarnings("unchecked")
 	public Collection<Wire> getWiresToAdd() {
 		Collection<Wire> ret = (Collection<Wire>) replacements.getAdditions();
 		return ret;
 	}
 
+	@SuppressWarnings("unchecked")
 	public Collection<Wire> getWiresToRemove() {
 		Collection<Wire> ret = (Collection<Wire>) replacements.getAdditions();
 		return ret;

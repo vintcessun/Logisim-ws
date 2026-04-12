@@ -27,6 +27,7 @@ public class ArraySet<E> extends AbstractSet<E> {
 			} else if (!hasNext) {
 				throw new NoSuchElementException();
 			} else {
+				@SuppressWarnings("unchecked")
 				E ret = (E) values[pos];
 				++pos;
 				hasNext = pos < values.length;

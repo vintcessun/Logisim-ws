@@ -34,6 +34,7 @@ public abstract class NumericConfigurator<V> implements KeyConfigurator, Cloneab
 	}
 
 	@Override
+	@SuppressWarnings("unchecked")
 	public NumericConfigurator<V> clone() {
 		try {
 			NumericConfigurator<V> ret = (NumericConfigurator<V>) super.clone();

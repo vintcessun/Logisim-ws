@@ -41,9 +41,6 @@ public class Main {
 
 	public static final short COPYRIGHT_YEAR = (short) Calendar.getInstance().get(Calendar.YEAR);
 
-	/* URL for the automatic updater */
-	public static final String UPDATE_URL = "https://raw.githubusercontent.com/Logisim-Ita/Logisim/master/version.xml";
-
 	public static final double JAVA_VERSION = getVersion();
 
 	// here will be saved the file in use to reopen when restarting
@@ -59,36 +56,14 @@ public class Main {
 	public static void main(String[] args) throws Exception {
 		Startup startup = Startup.parseArgs(args);
 		if (startup != null) {
-			// if it's not command line
-			/*
-			 * if (!startup.isTty()) { // remove online user when runtime stopped
-			 * Runtime.getRuntime().addShutdownHook(new Thread() {
-			 * 
-			 * @Override public void run() { if (AppPreferences.SEND_DATA.getBoolean())
-			 * Startup.runRemotePhpCode(
-			 * "http://logisim.altervista.org/LogisimData/OnlineUsers/online.php?val=0"); }
-			 * }); // add online user if (AppPreferences.SEND_DATA.getBoolean())
-			 * Startup.runRemotePhpCode(
-			 * "http://logisim.altervista.org/LogisimData/OnlineUsers/online.php?val=1"); }
-			 */
-			// search for updates, if true update and restart, else run logisim
-			if (!startup.autoUpdate(true, null)) {
-				try {
-					startup.run();
-				} catch (Throwable e) {
-					Writer result = new StringWriter();
-					PrintWriter printWriter = new PrintWriter(result);
-					e.printStackTrace(printWriter);
-					JOptionPane.showMessageDialog(null, result.toString());
-					System.exit(-1);
-				}
-			} else {
-				/*
-				 * if (AppPreferences.SEND_DATA.getBoolean()) Startup.runRemotePhpCode(
-				 * "http://logisim.altervista.org/LogisimData/Autoupdates/autoupdates.php?val=1"
-				 * );
-				 */
-				Startup.restart(args);
+			try {
+				startup.run();
+			} catch (Throwable e) {
+				Writer result = new StringWriter();
+				PrintWriter printWriter = new PrintWriter(result);
+				e.printStackTrace(printWriter);
+				JOptionPane.showMessageDialog(null, result.toString());
+				System.exit(-1);
 			}
 		} else
 			System.exit(-1);

@@ -152,7 +152,7 @@ public class LocaleManager {
 			}
 			if (select == null) {
 				if (backup == null) {
-					select = new Locale("en");
+					select = Locale.of("en");
 				} else {
 					select = backup;
 				}
@@ -195,7 +195,7 @@ public class LocaleManager {
 		if (locales == null || locales.length == 0) {
 			Locale cur = getLocale();
 			if (cur == null)
-				cur = new Locale("en");
+				cur = Locale.of("en");
 			locales = new Locale[] { cur };
 		}
 		return new JScrollPane(new LocaleSelector(locales));
@@ -247,7 +247,7 @@ public class LocaleManager {
 				country = null;
 			}
 			if (language != null) {
-				Locale loc = country == null ? new Locale(language) : new Locale(language, country);
+				Locale loc = country == null ? Locale.of(language) : Locale.of(language, country);
 				retl.add(loc);
 			}
 		}

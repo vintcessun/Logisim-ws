@@ -34,6 +34,7 @@ class PinAttributes extends ProbeAttributes {
 	}
 
 	@Override
+	@SuppressWarnings("unchecked")
 	public <V> V getValue(Attribute<V> attr) {
 		if (attr == StdAttr.WIDTH)
 			return (V) width;
@@ -58,6 +59,7 @@ class PinAttributes extends ProbeAttributes {
 	}
 
 	@Override
+	@SuppressWarnings("unchecked")
 	public <V> void setValue(Attribute<V> attr, V value) {
 		if (attr == StdAttr.WIDTH) {
 			width = (BitWidth) value;

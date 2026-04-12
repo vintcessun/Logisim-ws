@@ -39,6 +39,7 @@ public class AttributeSets {
 		}
 
 		@Override
+		@SuppressWarnings("unchecked")
 		public <V> V getValue(Attribute<V> attr) {
 			int index = attrs.indexOf(attr);
 			if (index < 0) {
@@ -110,6 +111,7 @@ public class AttributeSets {
 		}
 
 		@Override
+		@SuppressWarnings("unchecked")
 		public <V> V getValue(Attribute<V> attr) {
 			int index = attrs.indexOf(attr);
 			V ret = (V) (index >= 0 ? value : null);
@@ -199,6 +201,7 @@ public class AttributeSets {
 		if (src == null || src.getAttributes() == null)
 			return;
 		for (Attribute<?> attr : src.getAttributes()) {
+			@SuppressWarnings("unchecked")
 			Attribute<Object> attrObj = (Attribute<Object>) attr;
 			Object value = src.getValue(attr);
 			dst.setValue(attrObj, value);

@@ -84,7 +84,7 @@ public class ZipClassLoader extends ClassLoader {
 					ZipEntry zipEntry = zipFile.getEntry(res);
 					if (zipEntry != null) {
 						String url = "jar:" + zipPath.toURI() + "!/" + res;
-						ret = new URL(url);
+						ret = java.net.URI.create(url).toURL();
 					}
 				}
 			} catch (Throwable ex) {

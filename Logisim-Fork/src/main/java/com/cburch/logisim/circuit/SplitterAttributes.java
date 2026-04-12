@@ -303,6 +303,7 @@ class SplitterAttributes extends AbstractAttributeSet {
 
 	// val that will remain in the text box after selection
 	@Override
+	@SuppressWarnings("unchecked")
 	public <V> V getValue(Attribute<V> attr) {
 		if (attr == StdAttr.FACING) {
 			return (V) facing;
@@ -324,6 +325,7 @@ class SplitterAttributes extends AbstractAttributeSet {
 
 	//what happends when the one of the selection is selected
 	@Override
+	@SuppressWarnings("unchecked")
 	public <V> void setValue(Attribute<V> attr, V value) {
 		if (attr == StdAttr.FACING) {
 			facing = (Direction) value;

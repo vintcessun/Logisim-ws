@@ -46,6 +46,7 @@ class OptionsActions {
 		private Object oldval;
 
 		SetAction(AttributeSet attrs, Attribute<?> attr, Object value) {
+			@SuppressWarnings("unchecked")
 			Attribute<Object> a = (Attribute<Object>) attr;
 			this.attrs = attrs;
 			this.attr = a;

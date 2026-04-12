@@ -174,6 +174,7 @@ public class SelectionAttributes extends AbstractAttributeSet {
 		Object[] values = this.selValues;
 		for (int i = 0; i < attrs.length; i++) {
 			if (attrs[i] == attr) {
+				@SuppressWarnings("unchecked")
 				V ret = (V) values[i];
 				return ret;
 			}

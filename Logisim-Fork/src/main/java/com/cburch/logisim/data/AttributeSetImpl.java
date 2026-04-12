@@ -180,6 +180,7 @@ public class AttributeSetImpl extends AbstractAttributeSet {
 		if (n == null) {
 			throw new IllegalArgumentException("Unknown attribute " + attr);
 		}
+		@SuppressWarnings("unchecked")
 		V ret = (V) n.value;
 		return ret;
 	}

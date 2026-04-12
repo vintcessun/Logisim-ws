@@ -94,6 +94,7 @@ public class ZOrder {
 		ArrayList<E> ret = new ArrayList<E>(objects.size());
 		for (CanvasObject o : objs) {
 			if (set.contains(o)) {
+				@SuppressWarnings("unchecked")
 				E toAdd = (E) o;
 				ret.add(toAdd);
 			}
@@ -101,6 +102,7 @@ public class ZOrder {
 		return ret;
 	}
 
+	@SuppressWarnings("unchecked")
 	private static <E> Set<E> toSet(Collection<E> objects) {
 		if (objects instanceof Set) {
 			return (Set<E>) objects;

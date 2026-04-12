@@ -44,6 +44,7 @@ public class DrawingAttributeSet implements AttributeSet, Cloneable {
 		@Override
 		public void attributeValueChanged(AttributeEvent e) {
 			if (selectedAttrs.contains(e.getAttribute())) {
+				@SuppressWarnings("unchecked")
 				Attribute<Object> attr = (Attribute<Object>) e.getAttribute();
 				fireAttributeValueChanged(attr, e.getValue());
 			}
@@ -114,6 +115,7 @@ public class DrawingAttributeSet implements AttributeSet, Cloneable {
 		// use a for(i...) loop since the attribute list may change as we go on
 		for (int i = 0; i < d.getAttributes().size(); i++) {
 			Attribute<?> attr = d.getAttributes().get(i);
+			@SuppressWarnings("unchecked")
 			Attribute<Object> a = (Attribute<Object>) attr;
 			if (attr == DrawAttr.FILL_COLOR && this.containsAttribute(DrawAttr.TEXT_DEFAULT_FILL)) {
 				d.setValue(a, this.getValue(DrawAttr.TEXT_DEFAULT_FILL));
@@ -168,6 +170,7 @@ public class DrawingAttributeSet implements AttributeSet, Cloneable {
 			Object a = ait.next();
 			Object v = vit.next();
 			if (a.equals(attr)) {
+				@SuppressWarnings("unchecked")
 				V ret = (V) v;
 				return ret;
 			}

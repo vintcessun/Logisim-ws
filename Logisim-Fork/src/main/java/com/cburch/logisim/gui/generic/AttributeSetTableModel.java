@@ -19,6 +19,7 @@ public abstract class AttributeSetTableModel implements AttrTableModel, Attribut
 		private Attribute<Object> attr;
 
 		AttrRow(Attribute<?> attr) {
+			@SuppressWarnings("unchecked")
 			Attribute<Object> objAttr = (Attribute<Object>) attr;
 			this.attr = objAttr;
 		}

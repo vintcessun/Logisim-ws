@@ -84,6 +84,7 @@ class XmlWriter {
 		if (source != null && source.isAllDefaultValues(attrs, ver))
 			return;
 		for (Attribute<?> attrBase : attrs.getAttributes()) {
+			@SuppressWarnings("unchecked")
 			Attribute<Object> attr = (Attribute<Object>) attrBase;
 			Object val = attrs.getValue(attr);
 			if (attrs.isToSave(attr) && val != null) {

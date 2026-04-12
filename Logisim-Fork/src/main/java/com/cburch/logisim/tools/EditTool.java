@@ -162,6 +162,7 @@ public class EditTool extends Tool {
 		return Strings.get("editTool");
 	}
 
+	@SuppressWarnings("unchecked")
 	private Attribute<Direction> getFacingAttribute(Component comp) {
 		AttributeSet attrs = comp.getAttributeSet();
 		Object key = ComponentFactory.FACING_ATTRIBUTE_KEY;
