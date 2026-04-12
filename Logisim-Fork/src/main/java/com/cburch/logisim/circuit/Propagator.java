@@ -237,7 +237,7 @@ public class Propagator {
 		return isOscillating;
 	}
 
-	boolean isPending() {
+	public boolean isPending() {
 		return !toProcess.isEmpty();
 	}
 

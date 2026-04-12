@@ -681,6 +681,7 @@ class XmlReader {
 
 			// Fix Tunnel error attr
 
+
 			if (version.compareTo(LogisimVersion.get(2, 16, 2, 2)) < 0) {
 				for (Element compElt : XmlIterator.forChildElements(circElt, "comp")) {
 					if (compElt.getAttribute("name") != null && compElt.getAttribute("name").equals("Tunnel")) {
@@ -688,6 +689,46 @@ class XmlReader {
 						for (Element attrElt : XmlIterator.forChildElements(compElt, "a")) {
 							if (attrElt.getAttribute("name").equals("selectedMode")) {
 								compElt.removeChild(attrElt);
+							}
+						}
+					}
+				}
+			}
+
+			// Compatibility for trigger attribute value "high"/"low" in flip-flops and counters
+			for (Element compElt : XmlIterator.forChildElements(circElt, "comp")) {
+				String compName = compElt.getAttribute("name");
+				if (compName != null && (compName.endsWith("Flip-Flop") || compName.equals("Counter"))) {
+					for (Element attrElt : XmlIterator.forChildElements(compElt, "a")) {
+						if (attrElt.getAttribute("name").equals("trigger")) {
+							String val = attrElt.getAttribute("val");
+							if (val != null) {
+								if (val.equals("high")) {
+									attrElt.setAttribute("val", "rising");
+								} else if (val.equals("low")) {
+									attrElt.setAttribute("val", "falling");
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Also repair tools in libraries
+		for (Element libElt : XmlIterator.forChildElements(root, "lib")) {
+			for (Element toolElt : XmlIterator.forChildElements(libElt, "tool")) {
+				String toolName = toolElt.getAttribute("name");
+				if (toolName != null && (toolName.endsWith("Flip-Flop") || toolName.equals("Counter"))) {
+					for (Element attrElt : XmlIterator.forChildElements(toolElt, "a")) {
+						if (attrElt.getAttribute("name").equals("trigger")) {
+							String val = attrElt.getAttribute("val");
+							if (val != null) {
+								if (val.equals("high")) {
+									attrElt.setAttribute("val", "rising");
+								} else if (val.equals("low")) {
+									attrElt.setAttribute("val", "falling");
+								}
 							}
 						}
 					}

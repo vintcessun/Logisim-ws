@@ -123,7 +123,7 @@ class CanvasPainter implements PropertyChangeListener {
 		ComponentDrawContext context = new ComponentDrawContext(canvas, circ, circState, base, g, printerView);
 		context.setHighlightedWires(highlightedWires);
 		circ.draw(context, hidden);
-		sel.draw(context, hidden);
+		if (sel != null) sel.draw(context, hidden);
 
 		// draw tool
 		Tool tool = dragTool != null ? dragTool : proj.getTool();

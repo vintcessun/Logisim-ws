@@ -1,0 +1,30 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation project(':')
+    implementation 'io.javalin:javalin:6.1.3'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.0'
+    implementation 'org.slf4j:slf4j-simple:2.0.12'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+application {
+    mainClass = 'com.cburch.logisim.headless.HeadlessServer'
+    applicationDefaultJvmArgs = ['-Djava.awt.headless=true']
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs << "-Xlint:deprecation" << "-Xlint:unchecked"
+}

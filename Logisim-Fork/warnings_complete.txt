@@ -1,5 +1,0 @@
-﻿> Task :clean
-> Task :compileJava
-
-BUILD SUCCESSFUL in 3s
-2 actionable tasks: 2 executed

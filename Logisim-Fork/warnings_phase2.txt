@@ -1,6 +1,0 @@
-﻿
-> Task :compileJava
-[Incubating] Problems report is available at: file:///D:/Scripts/Logisim-ws/Logisim-Fork/build/reports/problems/problems-report.html
-
-BUILD SUCCESSFUL in 1s
-1 actionable task: 1 executed
