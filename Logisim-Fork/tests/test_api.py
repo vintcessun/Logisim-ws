@@ -79,7 +79,7 @@ async def test_full_flow():
             await ws.send(json.dumps({"action": "get_screenshot", "width": 1920, "height": 1080}))
             binary_data = await ws.recv()
             if isinstance(binary_data, bytes):
-                output_path = "screenshot_adder_result.png"
+                output_path = "tests/screenshot_adder_result.png"
                 with open(output_path, "wb") as f:
                     f.write(binary_data)
                 print(f"Screenshot saved to: {os.path.abspath(output_path)}")
@@ -145,7 +145,7 @@ async def test_multiplier_flow():
             await ws.send(json.dumps({"action": "get_screenshot", "width": 1600, "height": 900}))
             binary_data = await ws.recv()
             if isinstance(binary_data, bytes):
-                output_path = "screenshot_multiplier_result.png"
+                output_path = "tests/screenshot_multiplier_result.png"
                 with open(output_path, "wb") as f:
                     f.write(binary_data)
                 print(f"Screenshot saved to: {os.path.abspath(output_path)}")

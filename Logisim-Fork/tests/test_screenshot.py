@@ -33,7 +33,7 @@ async def test_screenshot():
             width, height = img.size
             print(f"Screenshot received. Dimensions: {width}x{height}")
             
-            output_path = "test_auto_crop.png"
+            output_path = "tests/test_auto_crop.png"
             img.save(output_path)
             print(f"Screenshot saved to: {os.path.abspath(output_path)}")
             

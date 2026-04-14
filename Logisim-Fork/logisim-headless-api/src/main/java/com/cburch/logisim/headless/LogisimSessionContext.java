@@ -47,12 +47,14 @@ public class LogisimSessionContext implements AutoCloseable {
                 stabilityLock.notifyAll();
             }
         }
+
         @Override
         public void simulatorStateChanged(SimulatorEvent e) {
             synchronized (stabilityLock) {
                 stabilityLock.notifyAll();
             }
         }
+
         @Override
         public void tickCompleted(SimulatorEvent e) {
             synchronized (stabilityLock) {
@@ -67,27 +69,29 @@ public class LogisimSessionContext implements AutoCloseable {
         if (!file.exists()) {
             throw new IOException("File not found: " + circPath);
         }
-        
+
         this.logisimFile = LogisimFile.load(file, loader);
         this.project = new Project(logisimFile);
-        
+
         // Re-enable background simulation to support visual updates (brightness, LEDs)
         // But we will use stabilityListener to wait for completion in API calls.
         Simulator sim = project.getSimulator();
         sim.addSimulatorListener(stabilityListener);
         sim.setIsRunning(true);
         sim.setIsTicking(true);
-        
+
         this.canvas = new HeadlessCanvas(project);
-        
+
         refreshComponentCache();
     }
 
     private void waitForStability() {
         CircuitState state = project.getCircuitState();
-        if (state == null) return;
+        if (state == null)
+            return;
         Propagator prop = state.getPropagator();
-        if (prop == null) return;
+        if (prop == null)
+            return;
 
         synchronized (stabilityLock) {
             long start = System.currentTimeMillis();
@@ -106,7 +110,8 @@ public class LogisimSessionContext implements AutoCloseable {
     private void refreshComponentCache() {
         componentCache.clear();
         Circuit circuit = project.getCurrentCircuit();
-        if (circuit == null) return;
+        if (circuit == null)
+            return;
 
         // First pass: prefer Pins (Input/Output)
         for (Component comp : circuit.getNonWires()) {
@@ -131,16 +136,17 @@ public class LogisimSessionContext implements AutoCloseable {
 
     public void switch_circuit(String name) {
         Circuit circuit = logisimFile.getCircuit(name);
-        if (circuit != null) {
-            project.setCurrentCircuit(circuit);
-            refreshComponentCache();
+        if (circuit == null) {
+            throw new IllegalArgumentException("The circuit " + name + " does not exist.");
         }
+        project.setCurrentCircuit(circuit);
+        refreshComponentCache();
     }
 
     public Map<String, List<String>> getIO() {
         List<String> inputs = new ArrayList<>();
         List<String> outputs = new ArrayList<>();
-        
+
         Circuit circuit = project.getCurrentCircuit();
         if (circuit != null) {
             for (Component comp : circuit.getNonWires()) {
@@ -158,7 +164,7 @@ public class LogisimSessionContext implements AutoCloseable {
                 }
             }
         }
-        
+
         Map<String, List<String>> res = new ConcurrentHashMap<>();
         res.put("inputs", inputs);
         res.put("outputs", outputs);
@@ -167,37 +173,56 @@ public class LogisimSessionContext implements AutoCloseable {
     }
 
     public void setValue(String target, String valueStr) {
-        if (target == null || valueStr == null) return;
+        if (target == null || valueStr == null) {
+            throw new IllegalArgumentException("Target and value must not be null.");
+        }
         Component comp = componentCache.get(target);
-        if (comp == null) return;
+        if (comp == null) {
+            throw new IllegalArgumentException("Component not found: " + target);
+        }
+
+        // Validation: Only input pins can be set
+        if ((!comp.getFactory().getName().equals("Pin")) && (!comp.getFactory().getName().equals("Button"))) {
+            throw new IllegalArgumentException(
+                    "Component '" + target + "(" + comp.getFactory().getName() + ")' is not a Pin.");
+        }
+        Boolean isOutput = (Boolean) comp.getAttributeSet().getValue(Pin.ATTR_TYPE);
+        if (isOutput != null && isOutput) {
+            throw new IllegalArgumentException("Pin '" + target + "' is an output pin and cannot be changed.");
+        }
 
         CircuitState state = project.getCircuitState();
         BitWidth width = comp.getAttributeSet().getValue(StdAttr.WIDTH);
-        if (width == null) width = BitWidth.ONE;
+        if (width == null)
+            width = BitWidth.ONE;
         Value val = parseValue(valueStr, width);
-        
+
         // Force value into circuit state (this drives signal colors/rendering)
         state.setValue(comp.getLocation(), val, comp, 1);
-        
+
         // Sync Pin's internal state for visual binary labels
         Instance instance = Instance.getInstanceFor(comp);
         if (instance != null && instance.getFactory() instanceof Pin) {
             InstanceState instState = state.getInstanceState(comp);
             ((Pin) instance.getFactory()).setValue(instState, val);
         }
-        
+
         // Explicitly request propagation for the background thread
         project.getSimulator().requestPropagate();
-        
+
         // Setting a value will trigger propagation in the background
         // We wait for it to stabilize
         waitForStability();
     }
 
     public String getValue(String target) {
-        if (target == null) return "unknown";
+        if (target == null) {
+            throw new IllegalArgumentException("Target must not be null.");
+        }
         Component comp = componentCache.get(target);
-        if (comp == null) return "unknown";
+        if (comp == null) {
+            throw new IllegalArgumentException("Component not found: " + target);
+        }
 
         waitForStability(); // Ensure stable state before reading
         CircuitState state = project.getCircuitState();
@@ -206,15 +231,26 @@ public class LogisimSessionContext implements AutoCloseable {
     }
 
     public int tickUntil(String target, String expected, String clock, int maxTicks) {
+        if (target == null) {
+            throw new IllegalArgumentException("Target must not be null.");
+        }
         Component targetComp = componentCache.get(target);
-        if (targetComp == null) return -1;
-        
+        if (targetComp == null) {
+            throw new IllegalArgumentException("Component not found: " + target);
+        }
+
+        if (clock != null && !clock.isEmpty() && !componentCache.containsKey(clock)) {
+            throw new IllegalArgumentException("Clock component not found: " + clock);
+        }
+
         BitWidth width = targetComp.getAttributeSet().getValue(StdAttr.WIDTH);
-        if (width == null) width = BitWidth.ONE;
+        if (width == null)
+            width = BitWidth.ONE;
 
         // Preliminary check
-        if (matches(getValue(target), expected, width)) return 0;
-        
+        if (matches(getValue(target), expected, width))
+            return 0;
+
         for (int i = 0; i < maxTicks; i++) {
             if (clock != null && !clock.isEmpty()) {
                 // Pulse the clock manually (1 then 0)
@@ -225,7 +261,7 @@ public class LogisimSessionContext implements AutoCloseable {
                 project.getSimulator().tick();
                 waitForStability();
             }
-            
+
             // getValue ensures stability and state consistency
             if (matches(getValue(target), expected, width)) {
                 return i + 1; // Return 1-based step count
@@ -235,9 +271,11 @@ public class LogisimSessionContext implements AutoCloseable {
     }
 
     private boolean matches(String currentHex, String expectedStr, BitWidth width) {
-        if (currentHex == null || expectedStr == null) return false;
-        if (currentHex.equalsIgnoreCase(expectedStr)) return true;
-        
+        if (currentHex == null || expectedStr == null)
+            return false;
+        if (currentHex.equalsIgnoreCase(expectedStr))
+            return true;
+
         try {
             Value v1 = parseValue(currentHex, width);
             Value v2 = parseValue(expectedStr, width);
@@ -249,7 +287,7 @@ public class LogisimSessionContext implements AutoCloseable {
 
     public byte[] getScreenshot(int width, int height) throws IOException {
         waitForStability(); // Ensure components have updated their visual state
-        
+
         Circuit circuit = project.getCurrentCircuit();
         Bounds bounds = circuit.getBounds();
         if (bounds == null || bounds == Bounds.EMPTY_BOUNDS) {
@@ -266,20 +304,30 @@ public class LogisimSessionContext implements AutoCloseable {
         return baos.toByteArray();
     }
 
-    private Value parseValue(String s, BitWidth width) {
-        if (s.equalsIgnoreCase("x")) return Value.createUnknown(width);
-        if (s.equalsIgnoreCase("z")) return Value.createUnknown(width); 
-        
+    private Value parseValue(String s, BitWidth width) throws IllegalArgumentException {
+        if (s == null || s.trim().isEmpty()) {
+            throw new IllegalArgumentException("Invalid value format: " + s);
+        }
+        s = s.trim().toLowerCase();
+
+        if (s.equals("x") || s.equals("z")) {
+            throw new IllegalArgumentException("Invalid value format: " + s);
+        }
+
         try {
             long longVal;
-            if (s.toLowerCase().startsWith("0x")) {
+            if (s.startsWith("0x")) {
                 longVal = Long.parseLong(s.substring(2), 16);
+            } else if (s.startsWith("0b")) {
+                longVal = Long.parseLong(s.substring(2), 2);
+            } else if (s.startsWith("0") && s.length() > 1) {
+                longVal = Long.parseLong(s.substring(1), 8);
             } else {
                 longVal = Long.parseLong(s);
             }
             return Value.createKnown(width, (int) longVal);
         } catch (NumberFormatException e) {
-            return Value.createUnknown(width);
+            throw new IllegalArgumentException("Invalid value format: " + s);
         }
     }
 

@@ -88,8 +88,13 @@ public class HeadlessServer {
                         ctx.send(MessageDTO.error(req.req_id, "No circuit loaded"));
                         break;
                     }
-                    session.switch_circuit(req.name);
-                    ctx.send(MessageDTO.ok(req.req_id));
+                    try {
+                        session.switch_circuit(req.name);
+                        ctx.send(MessageDTO.ok(req.req_id));
+                    } catch (IllegalArgumentException e) {
+                        ctx.send(MessageDTO.error(req.req_id, e.getMessage()));
+                        break;
+                    }
                     break;
 
                 case "get_io":
@@ -107,8 +112,12 @@ public class HeadlessServer {
                         ctx.send(MessageDTO.error(req.req_id, "No circuit loaded"));
                         break;
                     }
-                    session.setValue(req.target, req.value);
-                    ctx.send(MessageDTO.ok(req.req_id));
+                    try {
+                        session.setValue(req.target, req.value);
+                        ctx.send(MessageDTO.ok(req.req_id));
+                    } catch (IllegalArgumentException e) {
+                        ctx.send(MessageDTO.error(req.req_id, e.getMessage()));
+                    }
                     break;
 
                 case "get_value":
@@ -126,11 +135,15 @@ public class HeadlessServer {
                         ctx.send(MessageDTO.error(req.req_id, "No circuit loaded"));
                         break;
                     }
-                    int max = req.max != null ? req.max : 1000;
-                    int ticks = session.tickUntil(req.target, req.expected, req.clock, max);
-                    MessageDTO resTicks = MessageDTO.ok(req.req_id);
-                    resTicks.ticks = ticks;
-                    ctx.send(resTicks);
+                    try {
+                        int max = req.max != null ? req.max : 1000;
+                        int ticks = session.tickUntil(req.target, req.expected, req.clock, max);
+                        MessageDTO resTicks = MessageDTO.ok(req.req_id);
+                        resTicks.ticks = ticks;
+                        ctx.send(resTicks);
+                    } catch (IllegalArgumentException e) {
+                        ctx.send(MessageDTO.error(req.req_id, e.getMessage()));
+                    }
                     break;
 
                 case "get_screenshot":
