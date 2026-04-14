@@ -29,6 +29,12 @@ async def test_serial_adder():
         target_name = "8位串行加法器（1）"
         print(f"[2] Switching to: {target_name}")
         await send_json(ws, "switch_circuit", name=target_name)
+        print(" [2] Fetching I/O labels...")
+        resp = await send_json(ws, "get_io")
+        io = resp.get("payload", {})
+        print("Inputs:", io.get("inputs"))
+        print("Outputs:", io.get("outputs"))
+
 
         # 3. 设置输入 Xi=15, Yi=12, Cin=0
         # 15 + 12 = 27 (0x1B)
