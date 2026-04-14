@@ -23,6 +23,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import com.cburch.logisim.data.Bounds;
 import javax.imageio.ImageIO;
 import java.io.ByteArrayOutputStream;
 import java.awt.image.BufferedImage;
@@ -248,7 +249,18 @@ public class LogisimSessionContext implements AutoCloseable {
 
     public byte[] getScreenshot(int width, int height) throws IOException {
         waitForStability(); // Ensure components have updated their visual state
-        BufferedImage img = canvas.renderToImage(width, height);
+        
+        Circuit circuit = project.getCurrentCircuit();
+        Bounds bounds = circuit.getBounds();
+        if (bounds == null || bounds == Bounds.EMPTY_BOUNDS) {
+            // If the circuit is empty, render a minimal area
+            bounds = Bounds.create(0, 0, 100, 100);
+        } else {
+            // Automatically crop with 30px padding
+            bounds = bounds.expand(30);
+        }
+
+        BufferedImage img = canvas.renderToImage(bounds);
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ImageIO.write(img, "png", baos);
         return baos.toByteArray();
