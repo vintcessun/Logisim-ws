@@ -79,8 +79,12 @@ public class HeadlessServer {
                         break;
                     }
                     MessageDTO resCircs = MessageDTO.ok(req.req_id);
-                    resCircs.payload = session.getCircuits();
-                    ctx.send(resCircs);
+                    try {
+                        resCircs.payload = session.getCircuits();
+                        ctx.send(resCircs);
+                    } catch (Exception e) {
+                        ctx.send(MessageDTO.error(req.req_id, e.getMessage()));
+                    }
                     break;
 
                 case "switch_circuit":
@@ -103,8 +107,12 @@ public class HeadlessServer {
                         break;
                     }
                     MessageDTO resIo = MessageDTO.ok(req.req_id);
-                    resIo.payload = session.getIO();
-                    ctx.send(resIo);
+                    try {
+                        resIo.payload = session.getIO();
+                        ctx.send(resIo);
+                    } catch (Exception e) {
+                        ctx.send(MessageDTO.error(req.req_id, e.getMessage()));
+                    }
                     break;
 
                 case "set_value":
@@ -126,8 +134,12 @@ public class HeadlessServer {
                         break;
                     }
                     MessageDTO resVal = MessageDTO.ok(req.req_id);
-                    resVal.payload = session.getValue(req.target);
-                    ctx.send(resVal);
+                    try {
+                        resVal.payload = session.getValue(req.target);
+                        ctx.send(resVal);
+                    } catch (Exception e) {
+                        ctx.send(MessageDTO.error(req.req_id, e.getMessage()));
+                    }
                     break;
 
                 case "tick_until":
