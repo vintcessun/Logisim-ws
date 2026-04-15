@@ -32,6 +32,8 @@ public class MessageDTO {
 	public String txt_path;
 	/** For load_memory: map from hex/decimal address string to integer value. */
 	public Map<String, Integer> contents;
+	/** For run_tick: number of ticks to execute. */
+	public Integer tick_count;
 
 	// Response fields
 	public String status;

@@ -243,7 +243,7 @@ public class HeadlessServer {
 					if (req.timeout_second == null || req.timeout_second <= 0) {
 						ctx.send(MessageDTO.error(req.req_id,
 							"'timeout_second' is required and must be > 0 for "
-							+ "run_until_stable_then_tick."));
+								+ "run_until_stable_then_tick."));
 						break;
 					}
 					try {
@@ -255,6 +255,26 @@ public class HeadlessServer {
 						res.payload = session.runUntilStableThenTick(
 							req.target, req.expected, k, req.timeout_second, stableSamples, pollMs);
 						ctx.send(res);
+					} catch (IllegalArgumentException e) {
+						ctx.send(MessageDTO.error(req.req_id, e.getMessage()));
+					}
+					break;
+
+				case "run_tick":
+					if (session == null) {
+						ctx.send(MessageDTO.error(req.req_id, "No circuit loaded"));
+						break;
+					}
+					if (req.tick_count == null || req.tick_count <= 0) {
+						ctx.send(MessageDTO.error(
+							req.req_id, "'tick_count' is required and must be > 0 for run_tick."));
+						break;
+					}
+					try {
+						int ticks = session.runTick(req.tick_count);
+						MessageDTO resTick = MessageDTO.ok(req.req_id);
+						resTick.ticks = ticks;
+						ctx.send(resTick);
 					} catch (IllegalArgumentException e) {
 						ctx.send(MessageDTO.error(req.req_id, e.getMessage()));
 					}

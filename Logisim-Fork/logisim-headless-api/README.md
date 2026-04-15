@@ -21,6 +21,7 @@ All requests must include a `req_id` (String) to match responses asynchronously.
 | `set_value` | `target` (String), `value` (String) | Drive a component (Pin/Register) with a value (Hex `0xAA` or Dec `10`). |
 | `get_value` | `target` (String) | Read the current value of a component. |
 | `tick_until` | `target` (String), `expected` (String), `max` (Int), `clock`? (String) | Execute simulation loops until target matches expectation. |
+| `run_tick` | `tick_count` (Int) | Execute a specified number of simulation ticks. |
 | `get_screenshot` | `width`? (Int), `height`? (Int) | Render the circuit. Response is a **Binary Frame**. |
 | `check_value` | `target` (String), `expected` (String) | Assert that a component's value matches the expected value. |
 | `get_component_info` | `target` (String) | Get component type and memory metadata (if available). |
@@ -120,6 +121,53 @@ v2.0 raw
 3. 轮询目标值直到稳定
 4. 再额外执行 `k` 次 tick
 5. 停止连续时钟并冻结当前状态
+
+## ▶️ Simple Tick Command: `run_tick`
+
+Executes a specified number of simulation ticks in the **frozen state** (default). Each tick advances internal `Clock` components by one step.
+
+> [!NOTE]
+> **Tick vs Clock Cycle**: In Logisim, 1 tick = 1 clock state change. So 2 ticks = 1 complete clock cycle (CLK: 0→1→0).
+
+### Request
+
+```json
+{
+  "action": "run_tick",
+  "tick_count": 2,
+  "req_id": "tick-1"
+}
+```
+
+### Parameters
+
+- `tick_count` (required): Number of ticks to execute. Must be > 0.
+  - Example: `2` = 1 complete clock cycle (CLK rises then falls)
+  - Example: `4` = 2 complete clock cycles
+
+### Response
+
+```json
+{
+  "status": "ok",
+  "req_id": "tick-1",
+  "ticks": 2
+}
+```
+
+### Use Case
+
+Use `run_tick` for simple, single-step simulation without the complexity of `run_until_stable_then_tick`. Perfect for:
+- Manual stepping through logic
+- Running a known number of clock cycles before taking a screenshot
+- Verifying state transitions after `load_memory` or `set_value`
+
+Example sequence:
+```python
+await send_json(ws, "load_memory", target="ROM", txt_path="data.txt")
+await send_json(ws, "run_tick", tick_count=2)  # 1 clock cycle to settle
+await ws.send(json.dumps({"action": "get_screenshot"}))
+```
 
 ## ▶️ Macro Command: `run_until_stable_then_tick`
 

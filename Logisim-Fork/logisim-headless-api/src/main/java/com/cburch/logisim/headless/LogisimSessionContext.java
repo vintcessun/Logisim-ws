@@ -212,11 +212,52 @@ public class LogisimSessionContext implements AutoCloseable {
 	public Map<String, List<String>> getIO() {
 		List<String> inputs = new ArrayList<>(inputComponentCache.keySet());
 		List<String> outputs = new ArrayList<>(outputComponentCache.keySet());
+		List<String> allLabeled = new ArrayList<>(componentCache.keySet());
+
+		// Try to find single unlabeled components by factory name
+		Circuit circuit = project.getCurrentCircuit();
+		if (circuit != null) {
+			Map<String, Integer> factoryCount = new ConcurrentHashMap<>();
+			Map<String, Component> factoryExample = new ConcurrentHashMap<>();
+
+			// Count unlabeled components by factory type
+			for (Component comp : circuit.getNonWires()) {
+				String label = (String) comp.getAttributeSet().getValue(StdAttr.LABEL);
+				if (label == null || label.trim().isEmpty()) {
+					String factoryName = comp.getFactory().getName();
+					factoryCount.merge(factoryName, 1, Integer::sum);
+					factoryExample.putIfAbsent(factoryName, comp);
+				}
+			}
+
+			// For each factory type with exactly 1 unlabeled component, add it
+			for (String factoryName : factoryCount.keySet()) {
+				if (factoryCount.get(factoryName) == 1) {
+					Component comp = factoryExample.get(factoryName);
+					Boolean isOutput = (Boolean) comp.getAttributeSet().getValue(Pin.ATTR_TYPE);
+
+					if (factoryName.equals("Pin")) {
+						if (isOutput != null && isOutput) {
+							outputs.add(factoryName);
+						} else {
+							inputs.add(factoryName);
+						}
+						allLabeled.add(factoryName);
+					} else if (factoryName.equals("Button")) {
+						inputs.add(factoryName);
+						allLabeled.add(factoryName);
+					} else {
+						// For other component types (Clock, etc.), add to all_labeled
+						allLabeled.add(factoryName);
+					}
+				}
+			}
+		}
 
 		Map<String, List<String>> res = new ConcurrentHashMap<>();
 		res.put("inputs", inputs);
 		res.put("outputs", outputs);
-		res.put("all_labeled", new ArrayList<>(componentCache.keySet()));
+		res.put("all_labeled", allLabeled);
 		return res;
 	}
 
@@ -716,6 +757,25 @@ public class LogisimSessionContext implements AutoCloseable {
 		ByteArrayOutputStream baos = new ByteArrayOutputStream();
 		ImageIO.write(img, "png", baos);
 		return baos.toByteArray();
+	}
+
+	/**
+	 * Runs a specified number of simulation ticks.
+	 * The session remains frozen (default state).
+	 *
+	 * @param tickCount number of ticks to execute. Must be > 0.
+	 * @return number of ticks executed.
+	 */
+	public int runTick(int tickCount) {
+		if (tickCount <= 0) {
+			throw new IllegalArgumentException("tickCount must be > 0.");
+		}
+		Simulator sim = project.getSimulator();
+		for (int i = 0; i < tickCount; i++) {
+			sim.tick();
+		}
+		waitForStability();
+		return tickCount;
 	}
 
 	private Value parseValue(String s, BitWidth width) throws IllegalArgumentException {

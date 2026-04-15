@@ -73,6 +73,10 @@ async def test_memory_component_load_memory() -> None:
         await send_json(ws, "set_value", target="CLR", value="1")
         await send_json(ws, "set_value", target="CLR", value="0")
 
+        # 4.2) Run 2 ticks to allow circuit to stabilize
+        resp = await send_json(ws, "run_tick", tick_count=2)
+        print_resp("run_tick", resp)
+
         # 5) Optional fallback: if external txt missing, provide a tiny valid sample
         if not os.path.exists(TXT_PATH):
             fallback_txt = os.path.abspath("tests/tmp_memory_sample_v2_raw.txt")
@@ -86,6 +90,7 @@ async def test_memory_component_load_memory() -> None:
             if os.path.exists(fallback_txt):
                 os.remove(fallback_txt)
 
+        # 6) Take screenshot to verify ROM loaded data is visible
         await ws.send(
             json.dumps({"action": "get_screenshot", "width": 1600, "height": 900})
         )
