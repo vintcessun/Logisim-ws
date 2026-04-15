@@ -165,6 +165,19 @@ public class HeadlessServer {
 					}
 					break;
 
+				case "check_value":
+					if (session == null) {
+						ctx.send(MessageDTO.error(req.req_id, "No circuit loaded"));
+						break;
+					}
+					try {
+						session.checkValue(req.target, req.expected);
+						ctx.send(MessageDTO.ok(req.req_id));
+					} catch (IllegalArgumentException e) {
+						ctx.send(MessageDTO.error(req.req_id, e.getMessage()));
+					}
+					break;
+
 				case "get_screenshot":
 					if (session == null) {
 						ctx.send(MessageDTO.error(req.req_id, "No circuit loaded"));

@@ -252,7 +252,27 @@ public class LogisimSessionContext implements AutoCloseable {
 		waitForStability(); // Ensure stable state before reading
 		CircuitState state = project.getCircuitState();
 		Value val = state.getValue(comp.getLocation());
-		return val.toHexString();
+		return "0x" + val.toHexString();
+	}
+
+	public void checkValue(String target, String expected) {
+		if (target == null) {
+			throw new IllegalArgumentException("Target must not be null.");
+		}
+		Component comp = findInCache(componentCache, target);
+		if (comp == null) {
+			throw new IllegalArgumentException("Component not found: " + target);
+		}
+
+		BitWidth width = comp.getAttributeSet().getValue(StdAttr.WIDTH);
+		if (width == null)
+			width = BitWidth.ONE;
+
+		String currentValue = getValue(target);
+		if (!matches(currentValue, expected, width)) {
+			throw new IllegalArgumentException("Value mismatch for '" + target + "': expected "
+				+ expected + ", got " + currentValue);
+		}
 	}
 
 	public int tickUntil(String target, String expected, String clock, int maxTicks) {
@@ -342,12 +362,16 @@ public class LogisimSessionContext implements AutoCloseable {
 		try {
 			long longVal;
 			if (s.startsWith("0x")) {
+				// Explicit hex format
 				longVal = Long.parseLong(s.substring(2), 16);
 			} else if (s.startsWith("0b")) {
+				// Explicit binary format
 				longVal = Long.parseLong(s.substring(2), 2);
 			} else if (s.startsWith("0") && s.length() > 1) {
+				// 0开头的都当八进制
 				longVal = Long.parseLong(s.substring(1), 8);
 			} else {
+				// Decimal
 				longVal = Long.parseLong(s);
 			}
 			return Value.createKnown(width, (int) longVal);

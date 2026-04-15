@@ -22,6 +22,7 @@ All requests must include a `req_id` (String) to match responses asynchronously.
 | `get_value` | `target` (String) | Read the current value of a component. |
 | `tick_until` | `target` (String), `expected` (String), `max` (Int), `clock`? (String) | Execute simulation loops until target matches expectation. |
 | `get_screenshot` | `width`? (Int), `height`? (Int) | Render the circuit. Response is a **Binary Frame**. |
+| `check_value` | `target` (String), `expected` (String) | Assert that a component's value matches the expected value. |
 
 > [!IMPORTANT]
 > **Advanced Simulation (tick_until)**:
