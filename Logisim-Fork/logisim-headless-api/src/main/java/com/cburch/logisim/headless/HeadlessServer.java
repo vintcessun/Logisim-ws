@@ -188,6 +188,78 @@ public class HeadlessServer {
 					ctx.send(java.nio.ByteBuffer.wrap(png));
 					break;
 
+				case "get_component_info":
+					if (session == null) {
+						ctx.send(MessageDTO.error(req.req_id, "No circuit loaded"));
+						break;
+					}
+					try {
+						MessageDTO resInfo = MessageDTO.ok(req.req_id);
+						resInfo.payload = session.getComponentInfo(req.target);
+						ctx.send(resInfo);
+					} catch (IllegalArgumentException e) {
+						ctx.send(MessageDTO.error(req.req_id, e.getMessage()));
+					}
+					break;
+
+				case "load_memory":
+					if (session == null) {
+						ctx.send(MessageDTO.error(req.req_id, "No circuit loaded"));
+						break;
+					}
+					if (req.target == null || req.target.trim().isEmpty()) {
+						ctx.send(
+							MessageDTO.error(req.req_id, "'target' is required for load_memory."));
+						break;
+					}
+					try {
+						if (req.txt_path != null && !req.txt_path.trim().isEmpty()) {
+							session.loadMemoryFromTxt(req.target, req.txt_path);
+						} else if (req.contents != null && !req.contents.isEmpty()) {
+							// Backward compatibility with old payload mode.
+							session.loadMemory(req.target, req.contents);
+						} else {
+							ctx.send(MessageDTO.error(req.req_id,
+								"load_memory requires 'txt_path' (preferred) or non-empty "
+									+ "'contents'."));
+							break;
+						}
+						ctx.send(MessageDTO.ok(req.req_id));
+					} catch (IllegalArgumentException e) {
+						ctx.send(MessageDTO.error(req.req_id, e.getMessage()));
+					}
+					break;
+
+				case "run_until_stable_then_tick":
+					if (session == null) {
+						ctx.send(MessageDTO.error(req.req_id, "No circuit loaded"));
+						break;
+					}
+					if (req.target == null || req.target.trim().isEmpty()) {
+						ctx.send(MessageDTO.error(
+							req.req_id, "'target' is required for run_until_stable_then_tick."));
+						break;
+					}
+					if (req.timeout_second == null || req.timeout_second <= 0) {
+						ctx.send(MessageDTO.error(req.req_id,
+							"'timeout_second' is required and must be > 0 for "
+							+ "run_until_stable_then_tick."));
+						break;
+					}
+					try {
+						int k = req.k != null ? req.k : 0;
+						int stableSamples = req.stable_samples != null ? req.stable_samples : 5;
+						int pollMs = req.poll_ms != null ? req.poll_ms : 20;
+
+						MessageDTO res = MessageDTO.ok(req.req_id);
+						res.payload = session.runUntilStableThenTick(
+							req.target, req.expected, k, req.timeout_second, stableSamples, pollMs);
+						ctx.send(res);
+					} catch (IllegalArgumentException e) {
+						ctx.send(MessageDTO.error(req.req_id, e.getMessage()));
+					}
+					break;
+
 				default:
 					ctx.send(MessageDTO.error(req.req_id, "Unknown action: " + req.action));
 			}

@@ -1,5 +1,6 @@
 package com.cburch.logisim.headless;
 
+import com.cburch.hex.HexModel;
 import com.cburch.logisim.circuit.Circuit;
 import com.cburch.logisim.circuit.CircuitState;
 import com.cburch.logisim.circuit.Propagator;
@@ -14,6 +15,7 @@ import com.cburch.logisim.file.HeadlessLoader;
 import com.cburch.logisim.file.LoadFailedException;
 import com.cburch.logisim.file.Loader;
 import com.cburch.logisim.file.LogisimFile;
+import com.cburch.logisim.gui.hex.HexFile;
 import com.cburch.logisim.instance.Instance;
 import com.cburch.logisim.instance.InstanceState;
 import com.cburch.logisim.instance.StdAttr;
@@ -328,6 +330,285 @@ public class LogisimSessionContext implements AutoCloseable {
 		} catch (Exception e) {
 			return false;
 		}
+	}
+
+	/**
+	 * Returns metadata about a labeled component: its factory type, and for
+	 * memory components (ROM/RAM), the address-bit count, data-bit width, and
+	 * total capacity.
+	 */
+	public java.util.LinkedHashMap<String, Object> getComponentInfo(String label) {
+		if (label == null)
+			throw new IllegalArgumentException("Label must not be null.");
+
+		List<Component> candidates = componentCache.get(label);
+		if (candidates == null || candidates.isEmpty())
+			throw new IllegalArgumentException("Component not found: " + label);
+
+		Component comp = selectPreferredComponent(candidates);
+		String factoryName = comp.getFactory().getName();
+
+		java.util.LinkedHashMap<String, Object> info = new java.util.LinkedHashMap<>();
+		info.put("type", factoryName);
+		info.put("label", label);
+
+		var addrAttrKey = comp.getAttributeSet().getAttribute("addrWidth");
+		var dataAttrKey = comp.getAttributeSet().getAttribute("dataWidth");
+		BitWidth addrAttr = null;
+		BitWidth dataAttr = null;
+		if (addrAttrKey != null) {
+			@SuppressWarnings({"rawtypes", "unchecked"})
+			Object raw =
+				comp.getAttributeSet().getValue((com.cburch.logisim.data.Attribute) addrAttrKey);
+			if (raw instanceof BitWidth)
+				addrAttr = (BitWidth) raw;
+		}
+		if (dataAttrKey != null) {
+			@SuppressWarnings({"rawtypes", "unchecked"})
+			Object raw =
+				comp.getAttributeSet().getValue((com.cburch.logisim.data.Attribute) dataAttrKey);
+			if (raw instanceof BitWidth)
+				dataAttr = (BitWidth) raw;
+		}
+		if (addrAttr != null && dataAttr != null) {
+			info.put("isMemory", true);
+			info.put("addrBits", addrAttr.getWidth());
+			info.put("dataBits", dataAttr.getWidth());
+			info.put("capacity", 1L << addrAttr.getWidth());
+		} else {
+			info.put("isMemory", false);
+		}
+		return info;
+	}
+
+	/**
+	 * Loads memory contents into a labeled ROM component.
+	 * Throws if the component is not ROM. Each key in {@code entries}
+	 * is a hex/decimal address string; value is the integer data to write.
+	 */
+	public void loadMemory(String label, java.util.Map<String, Integer> entries) {
+		if (label == null)
+			throw new IllegalArgumentException("Label must not be null.");
+
+		List<Component> candidates = componentCache.get(label);
+		if (candidates == null || candidates.isEmpty())
+			throw new IllegalArgumentException("Component not found: " + label);
+
+		Component comp = selectPreferredComponent(candidates);
+		String factoryName = comp.getFactory().getName();
+		if (!factoryName.equals("ROM"))
+			throw new IllegalArgumentException("Component '" + label + "' is of type '"
+				+ factoryName + "', not ROM. This load_memory API currently supports ROM only.");
+
+		var contentsAttr = comp.getAttributeSet().getAttribute("contents");
+		if (contentsAttr == null)
+			throw new IllegalArgumentException(
+				"Cannot access memory contents attribute of component '" + label + "'.");
+
+		@SuppressWarnings({"rawtypes", "unchecked"})
+		Object rawContents =
+			comp.getAttributeSet().getValue((com.cburch.logisim.data.Attribute) contentsAttr);
+		if (!(rawContents instanceof HexModel))
+			throw new IllegalArgumentException(
+				"Cannot access memory contents of component '" + label + "'.");
+		HexModel contents = (HexModel) rawContents;
+
+		long maxAddr = contents.getLastOffset();
+		int dataMask = (1 << contents.getValueWidth()) - 1;
+
+		for (java.util.Map.Entry<String, Integer> entry : entries.entrySet()) {
+			String addrStr = entry.getKey().trim();
+			long addr;
+			try {
+				addr = addrStr.startsWith("0x") || addrStr.startsWith("0X")
+					? Long.parseLong(addrStr.substring(2), 16)
+					: Long.parseLong(addrStr);
+			} catch (NumberFormatException e) {
+				throw new IllegalArgumentException("Invalid address format: " + addrStr);
+			}
+			if (addr < 0 || addr > maxAddr)
+				throw new IllegalArgumentException("Address " + addrStr + " out of range [0, "
+					+ maxAddr + "] for component '" + label + "'.");
+
+			int data = entry.getValue() & dataMask;
+			contents.fill(addr, 1, data);
+		}
+		project.getSimulator().requestPropagate();
+		waitForStability();
+	}
+
+	/**
+	 * Loads ROM contents from a txt file in Logisim hex format (v2.0 raw).
+	 */
+	public void loadMemoryFromTxt(String label, String txtPath) {
+		if (txtPath == null || txtPath.trim().isEmpty()) {
+			throw new IllegalArgumentException("txt_path must not be empty.");
+		}
+
+		if (label == null)
+			throw new IllegalArgumentException("Label must not be null.");
+
+		List<Component> candidates = componentCache.get(label);
+		if (candidates == null || candidates.isEmpty())
+			throw new IllegalArgumentException("Component not found: " + label);
+
+		Component comp = selectPreferredComponent(candidates);
+		String factoryName = comp.getFactory().getName();
+		if (!factoryName.equals("ROM")) {
+			throw new IllegalArgumentException("Component '" + label + "' is of type '"
+				+ factoryName + "', not ROM. This load_memory API currently supports ROM only.");
+		}
+
+		var contentsAttr = comp.getAttributeSet().getAttribute("contents");
+		if (contentsAttr == null) {
+			throw new IllegalArgumentException(
+				"Cannot access memory contents attribute of component '" + label + "'.");
+		}
+
+		@SuppressWarnings({"rawtypes", "unchecked"})
+		Object rawContents =
+			comp.getAttributeSet().getValue((com.cburch.logisim.data.Attribute) contentsAttr);
+		if (!(rawContents instanceof HexModel)) {
+			throw new IllegalArgumentException(
+				"Cannot access memory contents of component '" + label + "'.");
+		}
+		HexModel contents = (HexModel) rawContents;
+
+		File file = new File(txtPath);
+		if (!file.exists() || !file.isFile()) {
+			throw new IllegalArgumentException(
+				"txt_path does not exist or is not a file: " + txtPath);
+		}
+
+		try {
+			HexFile.open(contents, file);
+		} catch (IOException e) {
+			throw new IllegalArgumentException(
+				"Failed to load txt memory file. Expected Logisim hex format 'v2.0 raw'. "
+				+ "Details: " + e.getMessage());
+		}
+
+		project.getSimulator().requestPropagate();
+		waitForStability();
+	}
+
+	/**
+	 * Macro command that mirrors menu flow:
+	 * 1) reset simulation (Ctrl+R)
+	 * 2) start continuous clock at 4.1kHz (Ctrl+K)
+	 * 3) wait until target value is stable
+	 * 4) run additional k ticks
+	 *
+	 * If timeout is reached at any stage, throws an IllegalArgumentException.
+	 */
+	public java.util.LinkedHashMap<String, Object> runUntilStableThenTick(String target,
+		String expected, int k, double timeoutSeconds, int stableSamples, int pollMs) {
+		if (target == null || target.trim().isEmpty()) {
+			throw new IllegalArgumentException("target must not be empty.");
+		}
+		if (timeoutSeconds <= 0) {
+			throw new IllegalArgumentException("timeout_second must be > 0.");
+		}
+		if (k < 0) {
+			throw new IllegalArgumentException("k must be >= 0.");
+		}
+		if (stableSamples <= 0) {
+			throw new IllegalArgumentException("stable_samples must be > 0.");
+		}
+		if (pollMs <= 0) {
+			throw new IllegalArgumentException("poll_ms must be > 0.");
+		}
+
+		Component targetComp = findInCache(componentCache, target);
+		if (targetComp == null) {
+			throw new IllegalArgumentException("Component not found: " + target);
+		}
+		BitWidth width = targetComp.getAttributeSet().getValue(StdAttr.WIDTH);
+		if (width == null)
+			width = BitWidth.ONE;
+
+		final long startMs = System.currentTimeMillis();
+		final long timeoutMs = (long) Math.round(timeoutSeconds * 1000.0);
+		final long deadlineMs = startMs + timeoutMs;
+
+		Simulator sim = project.getSimulator();
+
+		// Ctrl+R: reset simulation state
+		sim.requestReset();
+		waitForStability();
+
+		// Ctrl+K + highest tick frequency
+		sim.setTickFrequency(4100.0);
+		sim.setIsRunning(true);
+		sim.setIsTicking(true);
+
+		String last = null;
+		int stableCount = 0;
+		String stableValue = null;
+		int pollCount = 0;
+
+		try {
+			while (System.currentTimeMillis() <= deadlineMs) {
+				String cur = getValue(target);
+				pollCount++;
+
+				boolean expectedOk = true;
+				if (expected != null && !expected.trim().isEmpty()) {
+					expectedOk = matches(cur, expected, width);
+				}
+
+				if (expectedOk) {
+					if (cur.equals(last)) {
+						stableCount++;
+					} else {
+						stableCount = 1;
+						last = cur;
+					}
+
+					if (stableCount >= stableSamples) {
+						stableValue = cur;
+						break;
+					}
+				} else {
+					stableCount = 0;
+					last = cur;
+				}
+
+				Thread.sleep(pollMs);
+			}
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new IllegalArgumentException("Interrupted while waiting for stable value.");
+		}
+
+		if (stableValue == null) {
+			sim.setIsTicking(false);
+			throw new IllegalArgumentException("Timeout after " + timeoutSeconds
+				+ "s while waiting for stable target '" + target + "'.");
+		}
+
+		// Stop continuous ticking, then execute precise extra ticks.
+		sim.setIsTicking(false);
+		for (int i = 0; i < k; i++) {
+			if (System.currentTimeMillis() > deadlineMs) {
+				throw new IllegalArgumentException(
+					"Timeout after " + timeoutSeconds + "s while executing extra k ticks.");
+			}
+			sim.tick();
+			waitForStability();
+		}
+
+		String finalValue = getValue(target);
+		java.util.LinkedHashMap<String, Object> result = new java.util.LinkedHashMap<>();
+		result.put("target", target);
+		result.put("stable_value", stableValue);
+		result.put("final_value", finalValue);
+		result.put("stable_samples", stableSamples);
+		result.put("poll_count", pollCount);
+		result.put("k_executed", k);
+		result.put("tick_frequency_hz", 4100.0);
+		result.put("elapsed_ms", System.currentTimeMillis() - startMs);
+		return result;
 	}
 
 	public byte[] getScreenshot(int width, int height) throws IOException {
