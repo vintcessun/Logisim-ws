@@ -10,6 +10,8 @@ import com.cburch.logisim.comp.Component;
 import com.cburch.logisim.data.BitWidth;
 import com.cburch.logisim.data.Bounds;
 import com.cburch.logisim.data.Value;
+import com.cburch.logisim.file.HeadlessLoader;
+import com.cburch.logisim.file.LoadFailedException;
 import com.cburch.logisim.file.Loader;
 import com.cburch.logisim.file.LogisimFile;
 import com.cburch.logisim.instance.Instance;
@@ -65,13 +67,17 @@ public class LogisimSessionContext implements AutoCloseable {
 	}
 
 	public LogisimSessionContext(String circPath) throws IOException {
-		Loader loader = new Loader(null);
+		Loader loader = new HeadlessLoader();
 		File file = new File(circPath);
 		if (!file.exists()) {
 			throw new IOException("File not found: " + circPath);
 		}
 
-		this.logisimFile = LogisimFile.load(file, loader);
+		try {
+			this.logisimFile = loader.openLogisimFile(file);
+		} catch (LoadFailedException e) {
+			throw new IOException(e.getMessage(), e);
+		}
 		this.project = new Project(logisimFile);
 
 		// Re-enable background simulation to support visual updates (brightness, LEDs)
