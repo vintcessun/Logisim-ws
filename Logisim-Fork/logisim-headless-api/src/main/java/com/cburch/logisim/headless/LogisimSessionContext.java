@@ -165,6 +165,31 @@ public class LogisimSessionContext implements AutoCloseable {
 		return selectPreferredComponent(candidates);
 	}
 
+	/**
+	 * Fallback: if no component is found by label, searches the current circuit
+	 * for components whose factory name equals {@code factoryName}.
+	 * Returns the component if exactly one matches; throws if multiple match
+	 * (ambiguous); returns {@code null} if none match.
+	 */
+	private Component findByUniqueName(String factoryName) {
+		Circuit circuit = project.getCurrentCircuit();
+		if (circuit == null)
+			return null;
+		List<Component> matches = new ArrayList<>();
+		for (Component comp : circuit.getNonWires()) {
+			if (comp.getFactory().getName().equals(factoryName)) {
+				matches.add(comp);
+			}
+		}
+		if (matches.size() == 1)
+			return matches.get(0);
+		if (matches.isEmpty())
+			return null;
+		throw new IllegalArgumentException("Ambiguous target '" + factoryName
+			+ "': " + matches.size() + " components share that factory name. "
+			+ "Assign a unique label to each component to distinguish them.");
+	}
+
 	public List<String> getCircuits() {
 		List<String> names = new ArrayList<>();
 		for (Circuit c : logisimFile.getCircuits()) {
@@ -203,7 +228,23 @@ public class LogisimSessionContext implements AutoCloseable {
 				throw new IllegalArgumentException(
 					"Pin '" + target + "' is an output pin and cannot be changed.");
 			}
-			throw new IllegalArgumentException("Input component not found: " + target);
+			// Fallback: try to locate a unique component by factory name
+			Component fallback = findByUniqueName(target);
+			if (fallback != null) {
+				String fn = fallback.getFactory().getName();
+				if (!fn.equals("Pin") && !fn.equals("Button")) {
+					throw new IllegalArgumentException("Component '" + target + "' (type: " + fn
+						+ ") is not a settable input pin.");
+				}
+				Boolean isOut = (Boolean) fallback.getAttributeSet().getValue(Pin.ATTR_TYPE);
+				if (isOut != null && isOut) {
+					throw new IllegalArgumentException(
+						"Pin '" + target + "' is an output pin and cannot be changed.");
+				}
+				comp = fallback;
+			} else {
+				throw new IllegalArgumentException("Input component not found: " + target);
+			}
 		}
 
 		// Validation: Only input pins can be set
@@ -248,7 +289,9 @@ public class LogisimSessionContext implements AutoCloseable {
 		}
 		Component comp = findInCache(componentCache, target);
 		if (comp == null) {
-			throw new IllegalArgumentException("Component not found: " + target);
+			comp = findByUniqueName(target);
+			if (comp == null)
+				throw new IllegalArgumentException("Component not found: " + target);
 		}
 
 		waitForStability(); // Ensure stable state before reading
@@ -263,7 +306,9 @@ public class LogisimSessionContext implements AutoCloseable {
 		}
 		Component comp = findInCache(componentCache, target);
 		if (comp == null) {
-			throw new IllegalArgumentException("Component not found: " + target);
+			comp = findByUniqueName(target);
+			if (comp == null)
+				throw new IllegalArgumentException("Component not found: " + target);
 		}
 
 		BitWidth width = comp.getAttributeSet().getValue(StdAttr.WIDTH);
@@ -283,7 +328,9 @@ public class LogisimSessionContext implements AutoCloseable {
 		}
 		Component targetComp = findInCache(componentCache, target);
 		if (targetComp == null) {
-			throw new IllegalArgumentException("Component not found: " + target);
+			targetComp = findByUniqueName(target);
+			if (targetComp == null)
+				throw new IllegalArgumentException("Component not found: " + target);
 		}
 
 		if (clock != null && !clock.isEmpty() && !inputComponentCache.containsKey(clock)) {
@@ -342,10 +389,14 @@ public class LogisimSessionContext implements AutoCloseable {
 			throw new IllegalArgumentException("Label must not be null.");
 
 		List<Component> candidates = componentCache.get(label);
-		if (candidates == null || candidates.isEmpty())
-			throw new IllegalArgumentException("Component not found: " + label);
-
-		Component comp = selectPreferredComponent(candidates);
+		Component comp;
+		if (candidates == null || candidates.isEmpty()) {
+			comp = findByUniqueName(label);
+			if (comp == null)
+				throw new IllegalArgumentException("Component not found: " + label);
+		} else {
+			comp = selectPreferredComponent(candidates);
+		}
 		String factoryName = comp.getFactory().getName();
 
 		java.util.LinkedHashMap<String, Object> info = new java.util.LinkedHashMap<>();
@@ -391,10 +442,14 @@ public class LogisimSessionContext implements AutoCloseable {
 			throw new IllegalArgumentException("Label must not be null.");
 
 		List<Component> candidates = componentCache.get(label);
-		if (candidates == null || candidates.isEmpty())
-			throw new IllegalArgumentException("Component not found: " + label);
-
-		Component comp = selectPreferredComponent(candidates);
+		Component comp;
+		if (candidates == null || candidates.isEmpty()) {
+			comp = findByUniqueName(label);
+			if (comp == null)
+				throw new IllegalArgumentException("Component not found: " + label);
+		} else {
+			comp = selectPreferredComponent(candidates);
+		}
 		String factoryName = comp.getFactory().getName();
 		if (!factoryName.equals("ROM"))
 			throw new IllegalArgumentException("Component '" + label + "' is of type '"
@@ -449,10 +504,14 @@ public class LogisimSessionContext implements AutoCloseable {
 			throw new IllegalArgumentException("Label must not be null.");
 
 		List<Component> candidates = componentCache.get(label);
-		if (candidates == null || candidates.isEmpty())
-			throw new IllegalArgumentException("Component not found: " + label);
-
-		Component comp = selectPreferredComponent(candidates);
+		Component comp;
+		if (candidates == null || candidates.isEmpty()) {
+			comp = findByUniqueName(label);
+			if (comp == null)
+				throw new IllegalArgumentException("Component not found: " + label);
+		} else {
+			comp = selectPreferredComponent(candidates);
+		}
 		String factoryName = comp.getFactory().getName();
 		if (!factoryName.equals("ROM")) {
 			throw new IllegalArgumentException("Component '" + label + "' is of type '"
@@ -521,7 +580,9 @@ public class LogisimSessionContext implements AutoCloseable {
 
 		Component targetComp = findInCache(componentCache, target);
 		if (targetComp == null) {
-			throw new IllegalArgumentException("Component not found: " + target);
+			targetComp = findByUniqueName(target);
+			if (targetComp == null)
+				throw new IllegalArgumentException("Component not found: " + target);
 		}
 		BitWidth width = targetComp.getAttributeSet().getValue(StdAttr.WIDTH);
 		if (width == null)
