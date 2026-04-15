@@ -109,11 +109,17 @@ v2.0 raw
 - `Ctrl+R`: Reset simulation state（对应菜单中的复位）
 - `Ctrl+K`: Continuous ticking clock（对应菜单中的连续时钟）
 
+默认行为说明：
+- 会话默认是**冻结**状态（`Clock` 不会自动连续跳变）。
+- 只有 `run_until_stable_then_tick` 会临时开启连续时钟。
+- `run_until_stable_then_tick` 结束后（无论成功或失败）都会恢复为冻结状态。
+
 在本 API 中，`run_until_stable_then_tick` 会按这个顺序执行：
 1. Reset simulation（等价 `Ctrl+R`）
 2. Start continuous clock at max frequency `4.1kHz`（等价 `Ctrl+K`）
 3. 轮询目标值直到稳定
 4. 再额外执行 `k` 次 tick
+5. 停止连续时钟并冻结当前状态
 
 ## ▶️ Macro Command: `run_until_stable_then_tick`
 

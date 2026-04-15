@@ -66,6 +66,13 @@ async def test_memory_component_load_memory() -> None:
         resp = await send_json(ws, "load_memory", target=TARGET, txt_path=TXT_PATH)
         print_resp("load_memory", resp)
 
+        # 4.1) Pulse CLR so counter address returns to low range (0x00...)
+        # The txt writes from address 0 upward; if address is around 0x80,
+        # the ROM window can still show zeros even when import succeeded.
+        await send_json(ws, "set_value", target="CLR", value="0")
+        await send_json(ws, "set_value", target="CLR", value="1")
+        await send_json(ws, "set_value", target="CLR", value="0")
+
         # 5) Optional fallback: if external txt missing, provide a tiny valid sample
         if not os.path.exists(TXT_PATH):
             fallback_txt = os.path.abspath("tests/tmp_memory_sample_v2_raw.txt")

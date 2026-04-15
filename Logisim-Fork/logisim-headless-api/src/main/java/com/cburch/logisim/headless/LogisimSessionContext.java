@@ -87,7 +87,9 @@ public class LogisimSessionContext implements AutoCloseable {
 		Simulator sim = project.getSimulator();
 		sim.addSimulatorListener(stabilityListener);
 		sim.setIsRunning(true);
-		sim.setIsTicking(true);
+		// Keep default state frozen. Continuous ticking is only enabled by
+		// runUntilStableThenTick and is always stopped when that macro ends.
+		sim.setIsTicking(false);
 
 		this.canvas = new HeadlessCanvas(project);
 
@@ -609,80 +611,105 @@ public class LogisimSessionContext implements AutoCloseable {
 		int pollCount = 0;
 
 		try {
-			while (System.currentTimeMillis() <= deadlineMs) {
-				String cur = getValue(target);
-				pollCount++;
+			try {
+				while (System.currentTimeMillis() <= deadlineMs) {
+					String cur = getValue(target);
+					pollCount++;
 
-				boolean expectedOk = true;
-				if (expected != null && !expected.trim().isEmpty()) {
-					expectedOk = matches(cur, expected, width);
-				}
+					boolean expectedOk = true;
+					if (expected != null && !expected.trim().isEmpty()) {
+						expectedOk = matches(cur, expected, width);
+					}
 
-				if (expectedOk) {
-					if (cur.equals(last)) {
-						stableCount++;
+					if (expectedOk) {
+						if (cur.equals(last)) {
+							stableCount++;
+						} else {
+							stableCount = 1;
+							last = cur;
+						}
+
+						if (stableCount >= stableSamples) {
+							stableValue = cur;
+							break;
+						}
 					} else {
-						stableCount = 1;
+						stableCount = 0;
 						last = cur;
 					}
 
-					if (stableCount >= stableSamples) {
-						stableValue = cur;
-						break;
-					}
-				} else {
-					stableCount = 0;
-					last = cur;
+					Thread.sleep(pollMs);
 				}
-
-				Thread.sleep(pollMs);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				throw new IllegalArgumentException("Interrupted while waiting for stable value.");
 			}
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-			throw new IllegalArgumentException("Interrupted while waiting for stable value.");
-		}
 
-		if (stableValue == null) {
+			if (stableValue == null) {
+				throw new IllegalArgumentException("Timeout after " + timeoutSeconds
+					+ "s while waiting for stable target '" + target + "'.");
+			}
+
+			// Stop continuous ticking, then execute precise extra ticks.
 			sim.setIsTicking(false);
-			throw new IllegalArgumentException("Timeout after " + timeoutSeconds
-				+ "s while waiting for stable target '" + target + "'.");
-		}
-
-		// Stop continuous ticking, then execute precise extra ticks.
-		sim.setIsTicking(false);
-		for (int i = 0; i < k; i++) {
-			if (System.currentTimeMillis() > deadlineMs) {
-				throw new IllegalArgumentException(
-					"Timeout after " + timeoutSeconds + "s while executing extra k ticks.");
+			for (int i = 0; i < k; i++) {
+				if (System.currentTimeMillis() > deadlineMs) {
+					throw new IllegalArgumentException(
+						"Timeout after " + timeoutSeconds + "s while executing extra k ticks.");
+				}
+				sim.tick();
+				waitForStability();
 			}
-			sim.tick();
-			waitForStability();
-		}
 
-		String finalValue = getValue(target);
-		java.util.LinkedHashMap<String, Object> result = new java.util.LinkedHashMap<>();
-		result.put("target", target);
-		result.put("stable_value", stableValue);
-		result.put("final_value", finalValue);
-		result.put("stable_samples", stableSamples);
-		result.put("poll_count", pollCount);
-		result.put("k_executed", k);
-		result.put("tick_frequency_hz", 4100.0);
-		result.put("elapsed_ms", System.currentTimeMillis() - startMs);
-		return result;
+			String finalValue = getValue(target);
+			java.util.LinkedHashMap<String, Object> result = new java.util.LinkedHashMap<>();
+			result.put("target", target);
+			result.put("stable_value", stableValue);
+			result.put("final_value", finalValue);
+			result.put("stable_samples", stableSamples);
+			result.put("poll_count", pollCount);
+			result.put("k_executed", k);
+			result.put("tick_frequency_hz", 4100.0);
+			result.put("elapsed_ms", System.currentTimeMillis() - startMs);
+			return result;
+		} finally {
+			// Always freeze simulation after macro completion (success or error).
+			sim.setIsTicking(false);
+		}
 	}
 
 	public byte[] getScreenshot(int width, int height) throws IOException {
 		waitForStability(); // Ensure components have updated their visual state
 
 		Circuit circuit = project.getCurrentCircuit();
-		Bounds bounds = circuit.getBounds();
-		if (bounds == null || bounds == Bounds.EMPTY_BOUNDS) {
-			// If the circuit is empty, render a minimal area
+
+		// Compute bounding box by explicitly unioning every component's getBounds().
+		// circuit.getBounds() has edge-case bugs (e.g. drops wire bounds when a
+		// dimension is 0, and doesn't account for label overhang).
+		int xMin = Integer.MAX_VALUE;
+		int yMin = Integer.MAX_VALUE;
+		int xMax = Integer.MIN_VALUE;
+		int yMax = Integer.MIN_VALUE;
+		for (Component c : circuit.getComponents()) {
+			Bounds b = c.getBounds();
+			if (b == null || b == Bounds.EMPTY_BOUNDS)
+				continue;
+			if (b.getX() < xMin)
+				xMin = b.getX();
+			if (b.getY() < yMin)
+				yMin = b.getY();
+			if (b.getX() + b.getWidth() > xMax)
+				xMax = b.getX() + b.getWidth();
+			if (b.getY() + b.getHeight() > yMax)
+				yMax = b.getY() + b.getHeight();
+		}
+
+		Bounds bounds;
+		if (xMin == Integer.MAX_VALUE) {
+			// Empty circuit
 			bounds = Bounds.create(0, 0, 100, 100);
 		} else {
-			// Automatically crop with 30px padding
-			bounds = bounds.expand(30);
+			bounds = Bounds.create(xMin, yMin, xMax - xMin, yMax - yMin).expand(30);
 		}
 
 		BufferedImage img = canvas.renderToImage(bounds);
