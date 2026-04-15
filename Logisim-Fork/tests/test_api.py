@@ -8,6 +8,7 @@ import sys
 PORT = 9924
 URI = f"ws://localhost:{PORT}/ws"
 
+
 async def send_json(ws, action, **kwargs):
     req = {"action": action, **kwargs}
     await ws.send(json.dumps(req))
@@ -17,6 +18,7 @@ async def send_json(ws, action, **kwargs):
         return data
     except:
         return resp
+
 
 async def test_full_flow():
     print(f"Connecting to {URI}...")
@@ -44,7 +46,7 @@ async def test_full_flow():
                     if "16位" in c and "1" in c:
                         target_name = c
                         break
-            
+
             print(f"\n[3] Switching to circuit: {target_name}")
             resp = await send_json(ws, "switch_circuit", name=target_name)
             print("Response:", resp["status"])
@@ -69,14 +71,22 @@ async def test_full_flow():
             s_val = await send_json(ws, "get_value", target="S")
             c16_val = await send_json(ws, "get_value", target="C16")
             c15_val = await send_json(ws, "get_value", target="C15")
-            
-            print(f"Result S:   {s_val.get('payload') if isinstance(s_val, dict) else s_val}")
-            print(f"Result C16: {c16_val.get('payload') if isinstance(c16_val, dict) else c16_val}")
-            print(f"Result C15: {c15_val.get('payload') if isinstance(c15_val, dict) else c15_val}")
+
+            print(
+                f"Result S:   {s_val.get('payload') if isinstance(s_val, dict) else s_val}"
+            )
+            print(
+                f"Result C16: {c16_val.get('payload') if isinstance(c16_val, dict) else c16_val}"
+            )
+            print(
+                f"Result C15: {c15_val.get('payload') if isinstance(c15_val, dict) else c15_val}"
+            )
 
             # 7. 截图并保存
             print("\n[7] Taking screenshot (1920x1080)...")
-            await ws.send(json.dumps({"action": "get_screenshot", "width": 1920, "height": 1080}))
+            await ws.send(
+                json.dumps({"action": "get_screenshot", "width": 1920, "height": 1080})
+            )
             binary_data = await ws.recv()
             if isinstance(binary_data, bytes):
                 output_path = "tests/screenshot_adder_result.png"
@@ -90,6 +100,7 @@ async def test_full_flow():
 
     except Exception as e:
         print(f"An error occurred: {e}")
+
 
 async def test_multiplier_flow():
     print(f"\n--- Starting Multiplier Test ---")
@@ -105,6 +116,12 @@ async def test_multiplier_flow():
             print(f"[2] Switching to: {target_name}")
             await send_json(ws, "switch_circuit", name=target_name)
 
+            print(" [2] Fetching I/O labels...")
+            resp = await send_json(ws, "get_io")
+            io = resp.get("payload", {})
+            print("Inputs:", io.get("inputs"))
+            print("Outputs:", io.get("outputs"))
+
             # 3. 设置输入 X=7 (0x07), Y=3 (0x03) -> Result = 21 (0x0015)
             x_val, y_val = 7, 3
             print(f"[3] Setting inputs: X={x_val}, Y={y_val}")
@@ -119,7 +136,9 @@ async def test_multiplier_flow():
             # 5. 自动时钟直到 END 亮起
             # 目标: END=1, 时钟: 时钟 (Button label)
             print("[5] Ticking until END=1 using '时钟' as clock...")
-            resp = await send_json(ws, "tick_until", target="END", expected="0x1", clock="时钟", max=30)
+            resp = await send_json(
+                ws, "tick_until", target="END", expected="0x1", clock="时钟", max=30
+            )
             if resp.get("status") == "ok":
                 print(f"Simulation completed in {resp.get('ticks')} clock cycles.")
             else:
@@ -131,10 +150,10 @@ async def test_multiplier_flow():
             actual_hex = prod_resp.get("payload")
             actual_val = int(actual_hex, 16) if "unknown" not in actual_hex else 0
             expected_val = (x_val * y_val) & 0xFFFF
-            
+
             print(f"Expected: {expected_val} (0x{expected_val:04x})")
             print(f"Actual:   {actual_val} ({actual_hex})")
-            
+
             if actual_val == expected_val:
                 print("✅ Multiplier Test PASSED!")
             else:
@@ -142,7 +161,9 @@ async def test_multiplier_flow():
 
             # 7. 截图
             print("[7] Taking multiplier result screenshot...")
-            await ws.send(json.dumps({"action": "get_screenshot", "width": 1600, "height": 900}))
+            await ws.send(
+                json.dumps({"action": "get_screenshot", "width": 1600, "height": 900})
+            )
             binary_data = await ws.recv()
             if isinstance(binary_data, bytes):
                 output_path = "tests/screenshot_multiplier_result.png"
@@ -153,10 +174,12 @@ async def test_multiplier_flow():
     except Exception as e:
         print(f"An error occurred in multiplier test: {e}")
 
+
 async def main():
     # 依次运行两个测试
     await test_full_flow()
     await test_multiplier_flow()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
