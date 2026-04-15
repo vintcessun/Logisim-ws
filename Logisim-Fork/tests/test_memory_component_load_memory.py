@@ -79,6 +79,16 @@ async def test_memory_component_load_memory() -> None:
             if os.path.exists(fallback_txt):
                 os.remove(fallback_txt)
 
+        await ws.send(
+            json.dumps({"action": "get_screenshot", "width": 1600, "height": 900})
+        )
+        binary_data = await ws.recv()
+        if isinstance(binary_data, bytes):
+            output_path = "tests/screenshot_memory_component.png"
+            with open(output_path, "wb") as f:
+                f.write(binary_data)
+            print(f"Screenshot saved to: {os.path.abspath(output_path)}")
+
 
 if __name__ == "__main__":
     asyncio.run(test_memory_component_load_memory())
