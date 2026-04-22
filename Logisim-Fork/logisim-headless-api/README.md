@@ -84,7 +84,11 @@ Request (recommended):
 }
 ```
 
-`target` 必须是当前电路中已标注的 ROM 组件标签。建议先调用 `get_component_info`，确认 `type` 为 `ROM` 后再加载。
+**target 说明**：
+- 推荐使用已标注的 ROM 或 RAM 组件标签
+- 如果标签访问失败，会自动 fallback 到工厂名查找（如 `target="RAM"`）
+- Fallback 仅在**无歧义**（只有一个该类型组件）时成功；否则抛出错误
+- 建议先调用 `get_component_info` 确认 `type` 为 `ROM` 或 `RAM` 后再加载
 
 ### `load_memory` txt file format
 

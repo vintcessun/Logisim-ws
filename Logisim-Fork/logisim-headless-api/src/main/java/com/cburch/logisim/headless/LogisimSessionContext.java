@@ -20,11 +20,13 @@ import com.cburch.logisim.instance.Instance;
 import com.cburch.logisim.instance.InstanceState;
 import com.cburch.logisim.instance.StdAttr;
 import com.cburch.logisim.proj.Project;
+import com.cburch.logisim.std.base.Text;
 import com.cburch.logisim.std.wiring.Pin;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +37,9 @@ import javax.imageio.ImageIO;
  * Manages the state and operations for a single Logisim session.
  */
 public class LogisimSessionContext implements AutoCloseable {
+	private static final long TEXT_ALIAS_MAX_DISTANCE_SQ = 250L * 250L;
+	private static final long TEXT_ALIAS_MIN_GAP_SQ = 40L * 40L;
+
 	private Project project;
 	private LogisimFile logisimFile;
 	private HeadlessCanvas canvas;
@@ -143,28 +148,386 @@ public class LogisimSessionContext implements AutoCloseable {
 				}
 			}
 		}
+
+		// For exactly two same-labeled IO components, expose left/right aliases.
+		buildDirectionalAliases(inputComponentCache);
+		buildDirectionalAliases(outputComponentCache);
+
+		// Infer labels for unlabeled IO components by nearby text objects.
+		buildNearbyTextAliases(circuit);
 	}
 
 	private void addToCache(Map<String, List<Component>> cache, String label, Component comp) {
-		cache.computeIfAbsent(label, k -> new ArrayList<>()).add(comp);
+		List<Component> comps = cache.computeIfAbsent(label, k -> new ArrayList<>());
+		if (!comps.contains(comp)) {
+			comps.add(comp);
+		}
+	}
+
+	private String getComponentLabel(Component comp) {
+		String label = comp.getAttributeSet().getValue(StdAttr.LABEL);
+		if (label == null) {
+			return "";
+		}
+		return label.trim();
+	}
+
+	private static final class TextCandidate {
+		final String text;
+		final Component textComponent;
+
+		TextCandidate(String text, Component textComponent) {
+			this.text = text;
+			this.textComponent = textComponent;
+		}
+	}
+
+	private static final class TextAliasMatch {
+		final String text;
+		final Component target;
+		final long distanceSq;
+
+		TextAliasMatch(String text, Component target, long distanceSq) {
+			this.text = text;
+			this.target = target;
+			this.distanceSq = distanceSq;
+		}
+	}
+
+	private String extractTextLabel(Component comp) {
+		String text = null;
+		try {
+			text = comp.getAttributeSet().getValue(Text.ATTR_TEXT);
+		} catch (Exception ignored) {
+			// Fallback to generic attribute lookup below.
+		}
+
+		if (text == null) {
+			var textAttr = comp.getAttributeSet().getAttribute("text");
+			if (textAttr != null) {
+				@SuppressWarnings({"rawtypes", "unchecked"})
+				Object raw =
+					comp.getAttributeSet().getValue((com.cburch.logisim.data.Attribute) textAttr);
+				if (raw != null) {
+					text = raw.toString();
+				}
+			}
+		}
+
+		if (text == null) {
+			return null;
+		}
+
+		String trimmed = text.trim();
+		if (trimmed.isEmpty()) {
+			return null;
+		}
+
+		int newline = trimmed.indexOf('\n');
+		if (newline >= 0) {
+			trimmed = trimmed.substring(0, newline).trim();
+		}
+		return trimmed.isEmpty() ? null : trimmed;
+	}
+
+	private static long distanceSquaredToBounds(Component source, Component target) {
+		int px = source.getLocation().getX();
+		int py = source.getLocation().getY();
+		Bounds b = target.getBounds();
+
+		int left = b.getX();
+		int top = b.getY();
+		int right = left + b.getWidth();
+		int bottom = top + b.getHeight();
+
+		long dx = 0;
+		if (px < left) {
+			dx = left - px;
+		} else if (px > right) {
+			dx = px - right;
+		}
+
+		long dy = 0;
+		if (py < top) {
+			dy = top - py;
+		} else if (py > bottom) {
+			dy = py - bottom;
+		}
+
+		return dx * dx + dy * dy;
+	}
+
+	private void addNearbyTextAlias(String text, Component comp) {
+		if (text == null || text.isEmpty() || comp == null) {
+			return;
+		}
+
+		addToCache(componentCache, text, comp);
+
+		String fn = comp.getFactory().getName();
+		if (fn.equals("Button")) {
+			addToCache(inputComponentCache, text, comp);
+			return;
+		}
+
+		if (!fn.equals("Pin")) {
+			if (fn.equals("Probe")) {
+				addToCache(outputComponentCache, text, comp);
+			}
+			return;
+		}
+
+		Boolean isOutput = (Boolean) comp.getAttributeSet().getValue(Pin.ATTR_TYPE);
+		if (isOutput != null && isOutput) {
+			addToCache(outputComponentCache, text, comp);
+		} else {
+			addToCache(inputComponentCache, text, comp);
+		}
+	}
+
+	private static boolean isUnlabeled(Component comp) {
+		String label = comp.getAttributeSet().getValue(StdAttr.LABEL);
+		return label == null || label.trim().isEmpty();
+	}
+
+	private static boolean isInputAliasCandidate(Component comp) {
+		String fn = comp.getFactory().getName();
+		if (fn.equals("Button")) {
+			return true;
+		}
+		if (!fn.equals("Pin")) {
+			return false;
+		}
+		Boolean isOutput = (Boolean) comp.getAttributeSet().getValue(Pin.ATTR_TYPE);
+		return isOutput == null || !isOutput;
+	}
+
+	private static boolean isReadableAliasCandidate(Component comp) {
+		String fn = comp.getFactory().getName();
+		return fn.equals("Pin") || fn.equals("Button") || fn.equals("Probe");
+	}
+
+	private TextAliasMatch resolveNearestAlias(TextCandidate text, List<Component> candidates) {
+		Component nearest = null;
+		long nearestDist = Long.MAX_VALUE;
+		long secondDist = Long.MAX_VALUE;
+
+		for (Component comp : candidates) {
+			long d = distanceSquaredToBounds(text.textComponent, comp);
+			if (d < nearestDist) {
+				secondDist = nearestDist;
+				nearestDist = d;
+				nearest = comp;
+			} else if (d < secondDist) {
+				secondDist = d;
+			}
+		}
+
+		if (nearest == null || nearestDist > TEXT_ALIAS_MAX_DISTANCE_SQ) {
+			return null;
+		}
+
+		if (secondDist != Long.MAX_VALUE) {
+			boolean tooCloseByGap = (secondDist - nearestDist) < TEXT_ALIAS_MIN_GAP_SQ;
+			boolean tooCloseByRatio = secondDist < nearestDist * 2;
+			if (tooCloseByGap || tooCloseByRatio) {
+				return null;
+			}
+		}
+
+		return new TextAliasMatch(text.text, nearest, nearestDist);
+	}
+
+	private void applyBestTextAliases(List<TextCandidate> texts, List<Component> candidates) {
+		if (texts.isEmpty() || candidates.isEmpty()) {
+			return;
+		}
+
+		Map<String, TextAliasMatch> bestByText = new ConcurrentHashMap<>();
+		for (TextCandidate text : texts) {
+			TextAliasMatch match = resolveNearestAlias(text, candidates);
+			if (match == null) {
+				continue;
+			}
+
+			TextAliasMatch prev = bestByText.get(match.text);
+			if (prev == null || match.distanceSq < prev.distanceSq) {
+				bestByText.put(match.text, match);
+			}
+		}
+
+		for (TextAliasMatch match : bestByText.values()) {
+			addNearbyTextAlias(match.text, match.target);
+		}
+	}
+
+	private void buildNearbyTextAliases(Circuit circuit) {
+		List<Component> unlabeledReadable = new ArrayList<>();
+		List<Component> unlabeledInput = new ArrayList<>();
+		List<TextCandidate> texts = new ArrayList<>();
+
+		for (Component comp : circuit.getNonWires()) {
+			String fn = comp.getFactory().getName();
+			if (fn.equals("Text")) {
+				String text = extractTextLabel(comp);
+				if (text != null) {
+					texts.add(new TextCandidate(text, comp));
+				}
+				continue;
+			}
+
+			if (!isUnlabeled(comp)) {
+				continue;
+			}
+
+			if (isReadableAliasCandidate(comp)) {
+				unlabeledReadable.add(comp);
+			}
+
+			if (isInputAliasCandidate(comp)) {
+				unlabeledInput.add(comp);
+			}
+		}
+
+		if (texts.isEmpty()) {
+			return;
+		}
+
+		applyBestTextAliases(texts, unlabeledReadable);
+		applyBestTextAliases(texts, unlabeledInput);
+	}
+
+	private static int compareByLocation(Component a, Component b) {
+		int ax = a.getLocation().getX();
+		int bx = b.getLocation().getX();
+		if (ax != bx) {
+			return Integer.compare(ax, bx);
+		}
+		int ay = a.getLocation().getY();
+		int by = b.getLocation().getY();
+		return Integer.compare(ay, by);
+	}
+
+	private void addAliasToCache(Map<String, List<Component>> cache, String alias, Component comp) {
+		cache.computeIfAbsent(alias, k -> new ArrayList<>()).add(comp);
+	}
+
+	private void buildDirectionalAliases(Map<String, List<Component>> cache) {
+		for (Map.Entry<String, List<Component>> entry : new ArrayList<>(cache.entrySet())) {
+			String label = entry.getKey();
+			List<Component> comps = entry.getValue();
+			if (comps == null || comps.size() != 2) {
+				continue;
+			}
+
+			Component first = comps.get(0);
+			Component second = comps.get(1);
+			Component left = first;
+			Component right = second;
+			if (compareByLocation(second, first) < 0) {
+				left = second;
+				right = first;
+			}
+
+			addAliasToCache(cache, "left" + label, left);
+			addAliasToCache(cache, "right" + label, right);
+		}
 	}
 
 	private Component selectPreferredComponent(List<Component> candidates) {
 		if (candidates == null || candidates.isEmpty())
 			return null;
-
-		for (Component comp : candidates) {
-			String factoryName = comp.getFactory().getName();
-			if (factoryName.equals("Button") || factoryName.equals("Pin")) {
-				return comp;
-			}
+		if (candidates.size() == 1) {
+			return candidates.get(0);
 		}
-		return candidates.get(0);
+
+		String message =
+			"Ambiguous target: " + candidates.size() + " components share the same label.";
+		if (candidates.size() == 2) {
+			message +=
+				" Use left/right disambiguation (for example inputleft<Label>/inputright<Label> or "
+				+ "outputleft<Label>/outputright<Label>).";
+		} else {
+			message += " Assign unique labels to these components.";
+		}
+		throw new IllegalArgumentException(message);
 	}
 
 	private Component findInCache(Map<String, List<Component>> cache, String target) {
 		List<Component> candidates = cache.get(target);
 		return selectPreferredComponent(candidates);
+	}
+
+	private static void addIfAbsent(List<String> list, String value) {
+		if (!list.contains(value)) {
+			list.add(value);
+		}
+	}
+
+	private Component findByFactoryAndDirection(String factoryName, boolean expectOutput) {
+		Circuit circuit = project.getCurrentCircuit();
+		if (circuit == null)
+			return null;
+
+		List<Component> matches = new ArrayList<>();
+		for (Component comp : circuit.getNonWires()) {
+			if (!comp.getFactory().getName().equalsIgnoreCase(factoryName)) {
+				continue;
+			}
+
+			String fn = comp.getFactory().getName();
+			if (!(fn.equals("Pin") || fn.equals("Button"))) {
+				continue;
+			}
+
+			if (fn.equals("Button")) {
+				if (!expectOutput) {
+					matches.add(comp);
+				}
+				continue;
+			}
+
+			Boolean isOutput = (Boolean) comp.getAttributeSet().getValue(Pin.ATTR_TYPE);
+			boolean compIsOutput = isOutput != null && isOutput;
+			if (compIsOutput == expectOutput) {
+				matches.add(comp);
+			}
+		}
+
+		if (matches.size() == 1)
+			return matches.get(0);
+		if (matches.isEmpty())
+			return null;
+		throw new IllegalArgumentException("Ambiguous target '"
+			+ (expectOutput ? "output" : "input") + factoryName + "': " + matches.size()
+			+ " components match this prefixed factory name. "
+			+ "Assign a unique label to each component to distinguish them.");
+	}
+
+	private Component findByPrefixedName(String target) {
+		if (target == null)
+			return null;
+		if (target.length() > 5 && target.regionMatches(true, 0, "input", 0, 5)) {
+			String key = target.substring(5).trim();
+			if (!key.isEmpty()) {
+				Component fromInputCache = findInCache(inputComponentCache, key);
+				if (fromInputCache != null) {
+					return fromInputCache;
+				}
+				return findByFactoryAndDirection(key, false);
+			}
+		}
+		if (target.length() > 6 && target.regionMatches(true, 0, "output", 0, 6)) {
+			String key = target.substring(6).trim();
+			if (!key.isEmpty()) {
+				Component fromOutputCache = findInCache(outputComponentCache, key);
+				if (fromOutputCache != null) {
+					return fromOutputCache;
+				}
+				return findByFactoryAndDirection(key, true);
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -174,12 +537,17 @@ public class LogisimSessionContext implements AutoCloseable {
 	 * (ambiguous); returns {@code null} if none match.
 	 */
 	private Component findByUniqueName(String factoryName) {
+		Component prefixed = findByPrefixedName(factoryName);
+		if (prefixed != null) {
+			return prefixed;
+		}
+
 		Circuit circuit = project.getCurrentCircuit();
 		if (circuit == null)
 			return null;
 		List<Component> matches = new ArrayList<>();
 		for (Component comp : circuit.getNonWires()) {
-			if (comp.getFactory().getName().equals(factoryName)) {
+			if (comp.getFactory().getName().equalsIgnoreCase(factoryName)) {
 				matches.add(comp);
 			}
 		}
@@ -210,46 +578,115 @@ public class LogisimSessionContext implements AutoCloseable {
 	}
 
 	public Map<String, List<String>> getIO() {
-		List<String> inputs = new ArrayList<>(inputComponentCache.keySet());
-		List<String> outputs = new ArrayList<>(outputComponentCache.keySet());
-		List<String> allLabeled = new ArrayList<>(componentCache.keySet());
+		List<String> inputs = new ArrayList<>();
+		for (Map.Entry<String, List<Component>> entry : inputComponentCache.entrySet()) {
+			if (entry.getValue() != null && entry.getValue().size() == 1) {
+				addIfAbsent(inputs, "input" + entry.getKey());
+			}
+		}
 
-		// Try to find single unlabeled components by factory name
+		List<String> outputs = new ArrayList<>();
+		for (Map.Entry<String, List<Component>> entry : outputComponentCache.entrySet()) {
+			if (entry.getValue() != null && entry.getValue().size() == 1) {
+				addIfAbsent(outputs, "output" + entry.getKey());
+			}
+		}
+
+		List<String> allLabeled = new ArrayList<>();
+		for (Map.Entry<String, List<Component>> entry : componentCache.entrySet()) {
+			String key = entry.getKey();
+			List<Component> comps = entry.getValue();
+			if (comps == null || comps.size() != 1) {
+				continue;
+			}
+			if (inputComponentCache.containsKey(key) && inputComponentCache.get(key) != null
+				&& inputComponentCache.get(key).size() == 1) {
+				addIfAbsent(allLabeled, "input" + key);
+			} else if (outputComponentCache.containsKey(key)
+				&& outputComponentCache.get(key) != null
+				&& outputComponentCache.get(key).size() == 1) {
+				addIfAbsent(allLabeled, "output" + key);
+			} else {
+				addIfAbsent(allLabeled, key);
+			}
+		}
+
+		// Add unambiguous aliases for unlabeled components.
+		// IO aliases use directional prefixes: inputXxx / outputXxx.
 		Circuit circuit = project.getCurrentCircuit();
 		if (circuit != null) {
-			Map<String, Integer> factoryCount = new ConcurrentHashMap<>();
-			Map<String, Component> factoryExample = new ConcurrentHashMap<>();
+			Map<String, Integer> inputFactoryTotalCount = new ConcurrentHashMap<>();
+			Map<String, Integer> outputFactoryTotalCount = new ConcurrentHashMap<>();
+			Map<String, Integer> inputFactoryCount = new ConcurrentHashMap<>();
+			Map<String, Integer> outputFactoryCount = new ConcurrentHashMap<>();
+			Map<String, Integer> unlabeledFactoryCount = new ConcurrentHashMap<>();
 
-			// Count unlabeled components by factory type
 			for (Component comp : circuit.getNonWires()) {
+				String factoryName = comp.getFactory().getName();
+
+				if (factoryName.equals("Pin")) {
+					Boolean isOutput = (Boolean) comp.getAttributeSet().getValue(Pin.ATTR_TYPE);
+					if (isOutput != null && isOutput) {
+						outputFactoryTotalCount.merge(factoryName, 1, Integer::sum);
+					} else {
+						inputFactoryTotalCount.merge(factoryName, 1, Integer::sum);
+					}
+				} else if (factoryName.equals("Button")) {
+					inputFactoryTotalCount.merge(factoryName, 1, Integer::sum);
+				}
+
 				String label = (String) comp.getAttributeSet().getValue(StdAttr.LABEL);
 				if (label == null || label.trim().isEmpty()) {
-					String factoryName = comp.getFactory().getName();
-					factoryCount.merge(factoryName, 1, Integer::sum);
-					factoryExample.putIfAbsent(factoryName, comp);
+					unlabeledFactoryCount.merge(factoryName, 1, Integer::sum);
+
+					if (factoryName.equals("Pin")) {
+						Boolean isOutput = (Boolean) comp.getAttributeSet().getValue(Pin.ATTR_TYPE);
+						if (isOutput != null && isOutput) {
+							outputFactoryCount.merge(factoryName, 1, Integer::sum);
+						} else {
+							inputFactoryCount.merge(factoryName, 1, Integer::sum);
+						}
+					} else if (factoryName.equals("Button")) {
+						inputFactoryCount.merge(factoryName, 1, Integer::sum);
+					}
 				}
 			}
 
-			// For each factory type with exactly 1 unlabeled component, add it
-			for (String factoryName : factoryCount.keySet()) {
-				if (factoryCount.get(factoryName) == 1) {
-					Component comp = factoryExample.get(factoryName);
-					Boolean isOutput = (Boolean) comp.getAttributeSet().getValue(Pin.ATTR_TYPE);
+			for (String factoryName : inputFactoryTotalCount.keySet()) {
+				if (inputFactoryTotalCount.get(factoryName) == 1) {
+					String alias = "input" + factoryName;
+					addIfAbsent(inputs, alias);
+					addIfAbsent(allLabeled, alias);
+				}
+			}
 
-					if (factoryName.equals("Pin")) {
-						if (isOutput != null && isOutput) {
-							outputs.add(factoryName);
-						} else {
-							inputs.add(factoryName);
-						}
-						allLabeled.add(factoryName);
-					} else if (factoryName.equals("Button")) {
-						inputs.add(factoryName);
-						allLabeled.add(factoryName);
-					} else {
-						// For other component types (Clock, etc.), add to all_labeled
-						allLabeled.add(factoryName);
-					}
+			for (String factoryName : outputFactoryTotalCount.keySet()) {
+				if (outputFactoryTotalCount.get(factoryName) == 1) {
+					String alias = "output" + factoryName;
+					addIfAbsent(outputs, alias);
+					addIfAbsent(allLabeled, alias);
+				}
+			}
+
+			for (String factoryName : inputFactoryCount.keySet()) {
+				if (inputFactoryCount.get(factoryName) == 1) {
+					String alias = "input" + factoryName;
+					addIfAbsent(inputs, alias);
+					addIfAbsent(allLabeled, alias);
+				}
+			}
+
+			for (String factoryName : outputFactoryCount.keySet()) {
+				if (outputFactoryCount.get(factoryName) == 1) {
+					String alias = "output" + factoryName;
+					addIfAbsent(outputs, alias);
+					addIfAbsent(allLabeled, alias);
+				}
+			}
+
+			for (String factoryName : unlabeledFactoryCount.keySet()) {
+				if (unlabeledFactoryCount.get(factoryName) == 1) {
+					addIfAbsent(allLabeled, factoryName);
 				}
 			}
 		}
@@ -340,7 +777,21 @@ public class LogisimSessionContext implements AutoCloseable {
 		waitForStability(); // Ensure stable state before reading
 		CircuitState state = project.getCircuitState();
 		Value val = state.getValue(comp.getLocation());
-		return "0x" + val.toHexString();
+		String hex = val.toHexString();
+		if (hex != null && !hex.isEmpty()) {
+			boolean allUnknown = true;
+			for (int i = 0; i < hex.length(); i++) {
+				char c = Character.toLowerCase(hex.charAt(i));
+				if (c != 'x' && c != 'z') {
+					allUnknown = false;
+					break;
+				}
+			}
+			if (allUnknown) {
+				return hex;
+			}
+		}
+		return "0x" + hex;
 	}
 
 	public void checkValue(String target, String expected) {
@@ -376,8 +827,33 @@ public class LogisimSessionContext implements AutoCloseable {
 				throw new IllegalArgumentException("Component not found: " + target);
 		}
 
-		if (clock != null && !clock.isEmpty() && !inputComponentCache.containsKey(clock)) {
-			throw new IllegalArgumentException("Clock component not found: " + clock);
+		// Resolve clock component and determine tick strategy
+		boolean useSimTick = (clock == null || clock.isEmpty());
+		if (!useSimTick) {
+			Component clockComp = findInCache(inputComponentCache, clock);
+			if (clockComp == null) {
+				clockComp = findInCache(componentCache, clock);
+			}
+			if (clockComp == null) {
+				clockComp = findByUniqueName(clock);
+			}
+			if (clockComp == null) {
+				throw new IllegalArgumentException("Clock component not found: " + clock);
+			}
+			String fn = clockComp.getFactory().getName();
+			if (fn.equals("Clock")) {
+				// Logisim built-in Clock component: use simulator tick
+				useSimTick = true;
+			} else if (fn.equals("Pin") || fn.equals("Button")) {
+				Boolean isOut = (Boolean) clockComp.getAttributeSet().getValue(Pin.ATTR_TYPE);
+				if (isOut != null && isOut) {
+					throw new IllegalArgumentException(
+						"Clock component must be an input, but got output: " + clock);
+				}
+			} else {
+				throw new IllegalArgumentException(
+					"Clock component must be input Pin/Button or Clock: " + clock);
+			}
 		}
 
 		BitWidth width = targetComp.getAttributeSet().getValue(StdAttr.WIDTH);
@@ -389,7 +865,7 @@ public class LogisimSessionContext implements AutoCloseable {
 			return 0;
 
 		for (int i = 0; i < maxTicks; i++) {
-			if (clock != null && !clock.isEmpty()) {
+			if (!useSimTick) {
 				// Pulse the clock manually (1 then 0)
 				setValue(clock, "1");
 				setValue(clock, "0");
@@ -400,8 +876,14 @@ public class LogisimSessionContext implements AutoCloseable {
 			}
 
 			// getValue ensures stability and state consistency
-			if (matches(getValue(target), expected, width)) {
-				return i + 1; // Return 1-based step count
+			String current = getValue(target);
+			if (matches(current, expected, width)) {
+				// Guard against transient matches caused by asynchronous propagation.
+				// Re-read once without extra tick and only accept a stable hit.
+				String confirm = getValue(target);
+				if (matches(confirm, expected, width)) {
+					return i + 1; // Return 1-based step count
+				}
 			}
 		}
 		return -1;
@@ -494,22 +976,12 @@ public class LogisimSessionContext implements AutoCloseable {
 			comp = selectPreferredComponent(candidates);
 		}
 		String factoryName = comp.getFactory().getName();
-		if (!factoryName.equals("ROM"))
+		if (!factoryName.equals("ROM") && !factoryName.equals("RAM"))
 			throw new IllegalArgumentException("Component '" + label + "' is of type '"
-				+ factoryName + "', not ROM. This load_memory API currently supports ROM only.");
+				+ factoryName
+				+ "', not ROM or RAM. This load_memory API supports ROM and RAM only.");
 
-		var contentsAttr = comp.getAttributeSet().getAttribute("contents");
-		if (contentsAttr == null)
-			throw new IllegalArgumentException(
-				"Cannot access memory contents attribute of component '" + label + "'.");
-
-		@SuppressWarnings({"rawtypes", "unchecked"})
-		Object rawContents =
-			comp.getAttributeSet().getValue((com.cburch.logisim.data.Attribute) contentsAttr);
-		if (!(rawContents instanceof HexModel))
-			throw new IllegalArgumentException(
-				"Cannot access memory contents of component '" + label + "'.");
-		HexModel contents = (HexModel) rawContents;
+		HexModel contents = resolveMemoryHexModel(comp, factoryName, label);
 
 		long maxAddr = contents.getLastOffset();
 		int dataMask = (1 << contents.getValueWidth()) - 1;
@@ -531,12 +1003,14 @@ public class LogisimSessionContext implements AutoCloseable {
 			int data = entry.getValue() & dataMask;
 			contents.fill(addr, 1, data);
 		}
-		project.getSimulator().requestPropagate();
-		waitForStability();
+		if (!factoryName.equals("RAM")) {
+			project.getSimulator().requestPropagate();
+			waitForStability();
+		}
 	}
 
 	/**
-	 * Loads ROM contents from a txt file in Logisim hex format (v2.0 raw).
+	 * Loads ROM/RAM contents from a txt file in Logisim hex format (v2.0 raw).
 	 */
 	public void loadMemoryFromTxt(String label, String txtPath) {
 		if (txtPath == null || txtPath.trim().isEmpty()) {
@@ -556,25 +1030,13 @@ public class LogisimSessionContext implements AutoCloseable {
 			comp = selectPreferredComponent(candidates);
 		}
 		String factoryName = comp.getFactory().getName();
-		if (!factoryName.equals("ROM")) {
+		if (!factoryName.equals("ROM") && !factoryName.equals("RAM")) {
 			throw new IllegalArgumentException("Component '" + label + "' is of type '"
-				+ factoryName + "', not ROM. This load_memory API currently supports ROM only.");
+				+ factoryName
+				+ "', not ROM or RAM. This load_memory API supports ROM and RAM only.");
 		}
 
-		var contentsAttr = comp.getAttributeSet().getAttribute("contents");
-		if (contentsAttr == null) {
-			throw new IllegalArgumentException(
-				"Cannot access memory contents attribute of component '" + label + "'.");
-		}
-
-		@SuppressWarnings({"rawtypes", "unchecked"})
-		Object rawContents =
-			comp.getAttributeSet().getValue((com.cburch.logisim.data.Attribute) contentsAttr);
-		if (!(rawContents instanceof HexModel)) {
-			throw new IllegalArgumentException(
-				"Cannot access memory contents of component '" + label + "'.");
-		}
-		HexModel contents = (HexModel) rawContents;
+		HexModel contents = resolveMemoryHexModel(comp, factoryName, label);
 
 		File file = new File(txtPath);
 		if (!file.exists() || !file.isFile()) {
@@ -590,8 +1052,64 @@ public class LogisimSessionContext implements AutoCloseable {
 				+ "Details: " + e.getMessage());
 		}
 
-		project.getSimulator().requestPropagate();
-		waitForStability();
+		if (!factoryName.equals("RAM")) {
+			project.getSimulator().requestPropagate();
+			waitForStability();
+		}
+	}
+
+	@SuppressWarnings({"rawtypes", "unchecked"})
+	private HexModel resolveMemoryHexModel(Component comp, String factoryName, String label) {
+		// ROM path: contents is usually an attribute named "contents".
+		var contentsAttr = comp.getAttributeSet().getAttribute("contents");
+		if (contentsAttr != null) {
+			Object rawContents =
+				comp.getAttributeSet().getValue((com.cburch.logisim.data.Attribute) contentsAttr);
+			if (rawContents instanceof HexModel) {
+				return (HexModel) rawContents;
+			}
+		}
+
+		// Fallback by unique factory name (keeps previous robust behavior).
+		try {
+			Component fallback = findByUniqueName(factoryName);
+			if (fallback != null) {
+				var fallbackAttr = fallback.getAttributeSet().getAttribute("contents");
+				if (fallbackAttr != null) {
+					Object rawFallback = fallback.getAttributeSet().getValue(
+						(com.cburch.logisim.data.Attribute) fallbackAttr);
+					if (rawFallback instanceof HexModel) {
+						return (HexModel) rawFallback;
+					}
+				}
+			}
+		} catch (IllegalArgumentException e) {
+			// If ambiguous, continue to RAM state fallback and then throw unified error.
+		}
+
+		// RAM path: contents lives in runtime InstanceState data (MemState/RamState).
+		try {
+			CircuitState circuitState = project.getCircuitState();
+			if (circuitState != null) {
+				InstanceState instState = circuitState.getInstanceState(comp);
+				if (instState != null) {
+					Object data = instState.getData();
+					if (data != null) {
+						Method getContents = data.getClass().getMethod("getContents");
+						getContents.setAccessible(true);
+						Object runtimeContents = getContents.invoke(data);
+						if (runtimeContents instanceof HexModel) {
+							return (HexModel) runtimeContents;
+						}
+					}
+				}
+			}
+		} catch (ReflectiveOperationException e) {
+			// Ignore and throw unified error below.
+		}
+
+		throw new IllegalArgumentException(
+			"Cannot access memory contents of component '" + label + "'.");
 	}
 
 	/**
@@ -723,10 +1241,11 @@ public class LogisimSessionContext implements AutoCloseable {
 		waitForStability(); // Ensure components have updated their visual state
 
 		Circuit circuit = project.getCurrentCircuit();
+		BufferedImage measureImage = new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB);
+		java.awt.Graphics measureGraphics = measureImage.getGraphics();
 
-		// Compute bounding box by explicitly unioning every component's getBounds().
-		// circuit.getBounds() has edge-case bugs (e.g. drops wire bounds when a
-		// dimension is 0, and doesn't account for label overhang).
+		// Prefer graphics-aware bounds from the original engine so text overhang and
+		// label metrics match GUI/export behavior. Keep manual union as fallback.
 		int xMin = Integer.MAX_VALUE;
 		int yMin = Integer.MAX_VALUE;
 		int xMax = Integer.MIN_VALUE;
@@ -745,13 +1264,26 @@ public class LogisimSessionContext implements AutoCloseable {
 				yMax = b.getY() + b.getHeight();
 		}
 
+		Bounds graphicsBounds = circuit.getBounds(measureGraphics);
+		measureGraphics.dispose();
+
 		Bounds bounds;
-		if (xMin == Integer.MAX_VALUE) {
+		if (graphicsBounds != null && graphicsBounds != Bounds.EMPTY_BOUNDS) {
+			bounds = graphicsBounds;
+			if (xMin != Integer.MAX_VALUE) {
+				int ux0 = Math.min(bounds.getX(), xMin);
+				int uy0 = Math.min(bounds.getY(), yMin);
+				int ux1 = Math.max(bounds.getX() + bounds.getWidth(), xMax);
+				int uy1 = Math.max(bounds.getY() + bounds.getHeight(), yMax);
+				bounds = Bounds.create(ux0, uy0, ux1 - ux0, uy1 - uy0);
+			}
+		} else if (xMin == Integer.MAX_VALUE) {
 			// Empty circuit
 			bounds = Bounds.create(0, 0, 100, 100);
 		} else {
-			bounds = Bounds.create(xMin, yMin, xMax - xMin, yMax - yMin).expand(30);
+			bounds = Bounds.create(xMin, yMin, xMax - xMin, yMax - yMin);
 		}
+		bounds = bounds.expand(60);
 
 		BufferedImage img = canvas.renderToImage(bounds);
 		ByteArrayOutputStream baos = new ByteArrayOutputStream();

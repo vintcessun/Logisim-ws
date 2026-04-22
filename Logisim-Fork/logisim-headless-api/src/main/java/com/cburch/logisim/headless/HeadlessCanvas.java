@@ -2,16 +2,18 @@ package com.cburch.logisim.headless;
 
 import com.cburch.logisim.circuit.Circuit;
 import com.cburch.logisim.circuit.CircuitState;
-import com.cburch.logisim.comp.ComponentDrawContext;
 import com.cburch.logisim.data.Bounds;
-import com.cburch.logisim.gui.generic.GridPainter;
 import com.cburch.logisim.gui.main.Canvas;
+import com.cburch.logisim.prefs.AppPreferences;
 import com.cburch.logisim.proj.Project;
-import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
-import java.util.Collections;
+import javax.swing.JLabel;
+import javax.swing.SwingUtilities;
 
 /**
  * A headless adaptation of the Logisim Canvas for off-screen rendering.
@@ -21,6 +23,13 @@ public class HeadlessCanvas extends Canvas {
 		super(proj);
 		// Force headless mode properties if not already set
 		System.setProperty("java.awt.headless", "true");
+		// Match GUI startup: initialize Look&Feel before deriving default Swing fonts.
+		AppPreferences.setLayout();
+		SwingUtilities.updateComponentTreeUI(this);
+		Font lafFont = new JLabel().getFont();
+		if (lafFont != null) {
+			setFont(lafFont);
+		}
 	}
 
 	/**
@@ -38,41 +47,51 @@ public class HeadlessCanvas extends Canvas {
 	public BufferedImage renderToImage(Bounds bounds) {
 		int width = Math.max(1, bounds.getWidth());
 		int height = Math.max(1, bounds.getHeight());
+		int offsetX = Math.min(0, bounds.getX());
+		int offsetY = Math.min(0, bounds.getY());
+		int canvasWidth = Math.max(1, bounds.getX() + width - offsetX);
+		int canvasHeight = Math.max(1, bounds.getY() + height - offsetY);
 
-		Project proj = getProject();
-		Circuit circuit = proj.getCurrentCircuit();
-		CircuitState circuitState = proj.getCircuitState();
+		Dimension oldSize = getSize();
+		Dimension newSize = new Dimension(canvasWidth, canvasHeight);
+		setSize(newSize);
+		setPreferredSize(newSize);
 
-		BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-		Graphics2D g2d = image.createGraphics();
+		BufferedImage image =
+			new BufferedImage(canvasWidth, canvasHeight, BufferedImage.TYPE_INT_RGB);
+		Graphics2D g = image.createGraphics();
 
 		try {
-			g2d.setRenderingHint(
-				RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-			g2d.setRenderingHint(
-				RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-			g2d.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+			if (AppPreferences.ANTI_ALIASING.getBoolean()) {
+				g.setRenderingHint(
+					RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+				g.setRenderingHint(
+					RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			}
 
-			// White background
-			g2d.setColor(Color.WHITE);
-			g2d.fillRect(0, 0, width, height);
-
-			// Draw grid in image coordinates (same visual style as GUI background).
-			g2d.setClip(0, 0, width, height);
-			GridPainter gridPainter = new GridPainter(this);
-			gridPainter.paintGrid(g2d);
-
-			// Map circuit coordinate (bounds.getX(), bounds.getY()) → image pixel (0, 0)
-			g2d.translate(-bounds.getX(), -bounds.getY());
-
-			// Draw circuit directly — no Canvas/CanvasPainter/scroll/zoom involved
-			ComponentDrawContext ctx =
-				new ComponentDrawContext(this, circuit, circuitState, g2d, g2d);
-			circuit.draw(ctx, Collections.emptySet());
+			if (getFont() != null) {
+				g.setFont(getFont());
+			}
+			g.setClip(0, 0, canvasWidth, canvasHeight);
+			g.translate(-offsetX, -offsetY);
+			// Use the original Canvas rendering pipeline for font/layout parity.
+			printAll(g);
 		} finally {
-			g2d.dispose();
+			g.dispose();
+			setSize(oldSize);
+			setPreferredSize(oldSize);
 		}
 
-		return image;
+		int cropX = bounds.getX() - offsetX;
+		int cropY = bounds.getY() - offsetY;
+		BufferedImage cropped = image.getSubimage(cropX, cropY, width, height);
+		BufferedImage copy = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+		Graphics2D copyGraphics = copy.createGraphics();
+		try {
+			copyGraphics.drawImage(cropped, 0, 0, null);
+		} finally {
+			copyGraphics.dispose();
+		}
+		return copy;
 	}
 }

@@ -157,8 +157,28 @@ public class HeadlessServer {
 					try {
 						int max = req.max != null ? req.max : 1000;
 						int ticks = session.tickUntil(req.target, req.expected, req.clock, max);
+						if (ticks < 0) {
+							String current = null;
+							try {
+								current = session.getValue(req.target);
+							} catch (Exception ignored) {
+							}
+							String message = "tick_until did not reach expected value '"
+								+ req.expected + "' for target '" + req.target + "' within " + max
+								+ " ticks";
+							if (current != null) {
+								message += "; current value is " + current;
+							}
+							ctx.send(MessageDTO.error(req.req_id, message));
+							break;
+						}
 						MessageDTO resTicks = MessageDTO.ok(req.req_id);
 						resTicks.ticks = ticks;
+						try {
+							resTicks.payload = session.getValue(req.target);
+						} catch (Exception ignored) {
+							// Keep tick_until success even if payload fetch fails unexpectedly.
+						}
 						ctx.send(resTicks);
 					} catch (IllegalArgumentException e) {
 						ctx.send(MessageDTO.error(req.req_id, e.getMessage()));
