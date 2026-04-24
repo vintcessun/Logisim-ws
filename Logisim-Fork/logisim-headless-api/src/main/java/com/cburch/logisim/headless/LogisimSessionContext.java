@@ -1772,7 +1772,7 @@ public class LogisimSessionContext implements AutoCloseable {
 		} else {
 			bounds = Bounds.create(xMin, yMin, xMax - xMin, yMax - yMin);
 		}
-		bounds = bounds.expand(60);
+		bounds = bounds.expand(50);
 
 		BufferedImage img = canvas.renderToImage(bounds);
 		ByteArrayOutputStream baos = new ByteArrayOutputStream();
