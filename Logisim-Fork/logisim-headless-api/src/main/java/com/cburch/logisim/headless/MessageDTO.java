@@ -14,6 +14,8 @@ public class MessageDTO {
 	public String path;
 	public String name;
 	public String target;
+	/** For by-id APIs: stable component identifier in current circuit snapshot. */
+	public String comp_id;
 	public String value;
 	public String expected;
 	public Integer max;
@@ -34,6 +36,17 @@ public class MessageDTO {
 	public Map<String, Integer> contents;
 	/** For run_tick: number of ticks to execute. */
 	public Integer tick_count;
+
+	// Optional selector/filter fields for new non-breaking APIs.
+	public String factory_name;
+	public String label;
+	public Boolean is_memory;
+	public Integer addr_bits;
+	public Integer data_bits;
+	public Integer x;
+	public Integer y;
+	public Integer index;
+	public String sort;
 
 	// Response fields
 	public String status;

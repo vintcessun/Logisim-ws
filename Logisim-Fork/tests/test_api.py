@@ -58,6 +58,20 @@ async def test_full_flow():
             print("Inputs:", io.get("inputs"))
             print("Outputs:", io.get("outputs"))
 
+            # 4.1 新增 API 冒烟：组件枚举与按规则解析
+            print("\n[4.1] Listing components (is_memory=true)...")
+            resp = await send_json(ws, "list_components", is_memory=True)
+            print("Response:", resp.get("status"))
+            memory_components = (
+                resp.get("payload", []) if isinstance(resp, dict) else []
+            )
+            print("Memory component count:", len(memory_components))
+
+            print("\n[4.2] Resolving component by target='RAM'...")
+            resp = await send_json(ws, "resolve_component", target="RAM")
+            print("Response:", resp.get("status"))
+            print("Payload:", resp.get("payload"))
+
             # 5. 设置输入值 X, Y, C0
             # X = 0x1234, Y = 0xABCD, C0 = 1
             print("\n[5] Setting input values (X=0x1234, Y=0xABCD, C0=1)...")

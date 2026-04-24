@@ -222,6 +222,75 @@ public class HeadlessServer {
 					}
 					break;
 
+				case "list_components":
+					if (session == null) {
+						ctx.send(MessageDTO.error(req.req_id, "No circuit loaded"));
+						break;
+					}
+					try {
+						MessageDTO resList = MessageDTO.ok(req.req_id);
+						resList.payload = session.listComponents(req.factory_name, req.label,
+							req.is_memory, req.addr_bits, req.data_bits);
+						ctx.send(resList);
+					} catch (IllegalArgumentException e) {
+						ctx.send(MessageDTO.error(req.req_id, e.getMessage()));
+					}
+					break;
+
+				case "resolve_component":
+					if (session == null) {
+						ctx.send(MessageDTO.error(req.req_id, "No circuit loaded"));
+						break;
+					}
+					try {
+						MessageDTO resResolve = MessageDTO.ok(req.req_id);
+						resResolve.payload =
+							session.resolveComponent(req.target, req.factory_name, req.label,
+								req.is_memory, req.addr_bits, req.data_bits, req.index, req.sort);
+						ctx.send(resResolve);
+					} catch (IllegalArgumentException e) {
+						ctx.send(MessageDTO.error(req.req_id, e.getMessage()));
+					}
+					break;
+
+				case "get_component_info_by_id":
+					if (session == null) {
+						ctx.send(MessageDTO.error(req.req_id, "No circuit loaded"));
+						break;
+					}
+					if (req.comp_id == null || req.comp_id.trim().isEmpty()) {
+						ctx.send(MessageDTO.error(
+							req.req_id, "'comp_id' is required for get_component_info_by_id."));
+						break;
+					}
+					try {
+						MessageDTO resInfoById = MessageDTO.ok(req.req_id);
+						resInfoById.payload = session.getComponentInfoById(req.comp_id);
+						ctx.send(resInfoById);
+					} catch (IllegalArgumentException e) {
+						ctx.send(MessageDTO.error(req.req_id, e.getMessage()));
+					}
+					break;
+
+				case "describe_component":
+					if (session == null) {
+						ctx.send(MessageDTO.error(req.req_id, "No circuit loaded"));
+						break;
+					}
+					if (req.comp_id == null || req.comp_id.trim().isEmpty()) {
+						ctx.send(MessageDTO.error(
+							req.req_id, "'comp_id' is required for describe_component."));
+						break;
+					}
+					try {
+						MessageDTO resDescribe = MessageDTO.ok(req.req_id);
+						resDescribe.payload = session.describeComponent(req.comp_id);
+						ctx.send(resDescribe);
+					} catch (IllegalArgumentException e) {
+						ctx.send(MessageDTO.error(req.req_id, e.getMessage()));
+					}
+					break;
+
 				case "load_memory":
 					if (session == null) {
 						ctx.send(MessageDTO.error(req.req_id, "No circuit loaded"));
@@ -241,6 +310,33 @@ public class HeadlessServer {
 						} else {
 							ctx.send(MessageDTO.error(req.req_id,
 								"load_memory requires 'txt_path' (preferred) or non-empty "
+									+ "'contents'."));
+							break;
+						}
+						ctx.send(MessageDTO.ok(req.req_id));
+					} catch (IllegalArgumentException e) {
+						ctx.send(MessageDTO.error(req.req_id, e.getMessage()));
+					}
+					break;
+
+				case "load_memory_by_id":
+					if (session == null) {
+						ctx.send(MessageDTO.error(req.req_id, "No circuit loaded"));
+						break;
+					}
+					if (req.comp_id == null || req.comp_id.trim().isEmpty()) {
+						ctx.send(MessageDTO.error(
+							req.req_id, "'comp_id' is required for load_memory_by_id."));
+						break;
+					}
+					try {
+						if (req.txt_path != null && !req.txt_path.trim().isEmpty()) {
+							session.loadMemoryFromTxtById(req.comp_id, req.txt_path);
+						} else if (req.contents != null && !req.contents.isEmpty()) {
+							session.loadMemoryById(req.comp_id, req.contents);
+						} else {
+							ctx.send(MessageDTO.error(req.req_id,
+								"load_memory_by_id requires 'txt_path' (preferred) or non-empty "
 									+ "'contents'."));
 							break;
 						}

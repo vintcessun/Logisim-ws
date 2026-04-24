@@ -28,8 +28,12 @@ import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.imageio.ImageIO;
 
@@ -46,6 +50,8 @@ public class LogisimSessionContext implements AutoCloseable {
 	private Map<String, List<Component>> componentCache = new ConcurrentHashMap<>();
 	private Map<String, List<Component>> inputComponentCache = new ConcurrentHashMap<>();
 	private Map<String, List<Component>> outputComponentCache = new ConcurrentHashMap<>();
+	private Map<String, Component> componentIdCache = new ConcurrentHashMap<>();
+	private Map<Component, String> reverseComponentIdCache = new ConcurrentHashMap<>();
 
 	private final Object stabilityLock = new Object();
 	private final StabilityListener stabilityListener = new StabilityListener();
@@ -127,6 +133,8 @@ public class LogisimSessionContext implements AutoCloseable {
 		componentCache.clear();
 		inputComponentCache.clear();
 		outputComponentCache.clear();
+		componentIdCache.clear();
+		reverseComponentIdCache.clear();
 		Circuit circuit = project.getCurrentCircuit();
 		if (circuit == null)
 			return;
@@ -155,6 +163,7 @@ public class LogisimSessionContext implements AutoCloseable {
 
 		// Infer labels for unlabeled IO components by nearby text objects.
 		buildNearbyTextAliases(circuit);
+		rebuildComponentIdCache(circuit);
 	}
 
 	private void addToCache(Map<String, List<Component>> cache, String label, Component comp) {
@@ -170,6 +179,204 @@ public class LogisimSessionContext implements AutoCloseable {
 			return "";
 		}
 		return label.trim();
+	}
+
+	private String sanitizeIdPart(String s) {
+		if (s == null || s.isEmpty()) {
+			return "_";
+		}
+		StringBuilder sb = new StringBuilder(s.length());
+		for (int i = 0; i < s.length(); i++) {
+			char c = s.charAt(i);
+			if (Character.isLetterOrDigit(c) || c == '_' || c == '-') {
+				sb.append(c);
+			} else {
+				sb.append('_');
+			}
+		}
+		return sb.toString();
+	}
+
+	private void rebuildComponentIdCache(Circuit circuit) {
+		if (circuit == null) {
+			return;
+		}
+
+		List<Component> components = new ArrayList<>();
+		for (Component comp : circuit.getNonWires()) {
+			components.add(comp);
+		}
+
+		Collections.sort(components,
+			Comparator.comparingInt((Component c) -> c.getLocation().getX())
+				.thenComparingInt(c -> c.getLocation().getY())
+				.thenComparing(c -> c.getFactory().getName())
+				.thenComparing(this::getComponentLabel));
+
+		Map<String, Integer> keyCount = new ConcurrentHashMap<>();
+		String circuitName = sanitizeIdPart(circuit.getName());
+
+		for (Component comp : components) {
+			String factory = sanitizeIdPart(comp.getFactory().getName());
+			String label = sanitizeIdPart(getComponentLabel(comp));
+			int x = comp.getLocation().getX();
+			int y = comp.getLocation().getY();
+			String base = circuitName + ":" + factory + ":" + x + ":" + y + ":" + label;
+			int index = keyCount.merge(base, 1, Integer::sum);
+			String compId = base + ":" + index;
+			componentIdCache.put(compId, comp);
+			reverseComponentIdCache.put(comp, compId);
+		}
+	}
+
+	private Component requireComponentById(String compId) {
+		if (compId == null || compId.trim().isEmpty()) {
+			throw new IllegalArgumentException("comp_id must not be empty.");
+		}
+		Component comp = componentIdCache.get(compId);
+		if (comp == null) {
+			throw new IllegalArgumentException("Component not found by comp_id: " + compId
+				+ ". Call list_components again after switching circuit.");
+		}
+		return comp;
+	}
+
+	private LinkedHashMap<String, Object> getMemoryInfo(Component comp) {
+		LinkedHashMap<String, Object> memory = new LinkedHashMap<>();
+		var addrAttrKey = comp.getAttributeSet().getAttribute("addrWidth");
+		var dataAttrKey = comp.getAttributeSet().getAttribute("dataWidth");
+		BitWidth addrAttr = null;
+		BitWidth dataAttr = null;
+		if (addrAttrKey != null) {
+			@SuppressWarnings({"rawtypes", "unchecked"})
+			Object raw =
+				comp.getAttributeSet().getValue((com.cburch.logisim.data.Attribute) addrAttrKey);
+			if (raw instanceof BitWidth)
+				addrAttr = (BitWidth) raw;
+		}
+		if (dataAttrKey != null) {
+			@SuppressWarnings({"rawtypes", "unchecked"})
+			Object raw =
+				comp.getAttributeSet().getValue((com.cburch.logisim.data.Attribute) dataAttrKey);
+			if (raw instanceof BitWidth)
+				dataAttr = (BitWidth) raw;
+		}
+		boolean isMemory = addrAttr != null && dataAttr != null;
+		memory.put("isMemory", isMemory);
+		if (isMemory) {
+			memory.put("addrBits", addrAttr.getWidth());
+			memory.put("dataBits", dataAttr.getWidth());
+			memory.put("capacity", 1L << addrAttr.getWidth());
+		}
+		return memory;
+	}
+
+	private List<String> collectAliases(Component comp) {
+		List<String> aliases = new ArrayList<>();
+		for (Map.Entry<String, List<Component>> entry : componentCache.entrySet()) {
+			List<Component> comps = entry.getValue();
+			if (comps == null || comps.size() != 1) {
+				continue;
+			}
+			if (Objects.equals(comps.get(0), comp)) {
+				addIfAbsent(aliases, entry.getKey());
+			}
+		}
+		for (Map.Entry<String, List<Component>> entry : inputComponentCache.entrySet()) {
+			List<Component> comps = entry.getValue();
+			if (comps == null || comps.size() != 1) {
+				continue;
+			}
+			if (Objects.equals(comps.get(0), comp)) {
+				addIfAbsent(aliases, "input" + entry.getKey());
+			}
+		}
+		for (Map.Entry<String, List<Component>> entry : outputComponentCache.entrySet()) {
+			List<Component> comps = entry.getValue();
+			if (comps == null || comps.size() != 1) {
+				continue;
+			}
+			if (Objects.equals(comps.get(0), comp)) {
+				addIfAbsent(aliases, "output" + entry.getKey());
+			}
+		}
+		return aliases;
+	}
+
+	private List<String> collectNeighborHints(Component comp, int limit) {
+		Circuit circuit = project.getCurrentCircuit();
+		if (circuit == null) {
+			return new ArrayList<>();
+		}
+		List<Map.Entry<String, Long>> ranked = new ArrayList<>();
+		for (Component candidate : circuit.getNonWires()) {
+			if (candidate == comp) {
+				continue;
+			}
+			String lbl = getComponentLabel(candidate);
+			if (lbl.isEmpty()) {
+				continue;
+			}
+			long dist = distanceSquaredToBounds(comp, candidate);
+			ranked.add(Map.entry(lbl, dist));
+		}
+		ranked.sort(Comparator.comparingLong(Map.Entry::getValue));
+
+		List<String> hints = new ArrayList<>();
+		for (Map.Entry<String, Long> item : ranked) {
+			addIfAbsent(hints, item.getKey());
+			if (hints.size() >= limit) {
+				break;
+			}
+		}
+		return hints;
+	}
+
+	private String makeFingerprint(Component comp, LinkedHashMap<String, Object> memoryInfo) {
+		StringBuilder sb = new StringBuilder();
+		sb.append(comp.getFactory().getName())
+			.append('|')
+			.append(getComponentLabel(comp))
+			.append('|');
+		sb.append(comp.getLocation().getX())
+			.append('|')
+			.append(comp.getLocation().getY())
+			.append('|');
+		sb.append(memoryInfo.get("isMemory"));
+		if (Boolean.TRUE.equals(memoryInfo.get("isMemory"))) {
+			sb.append('|')
+				.append(memoryInfo.get("addrBits"))
+				.append('|')
+				.append(memoryInfo.get("dataBits"));
+		}
+		return Integer.toHexString(sb.toString().hashCode());
+	}
+
+	private LinkedHashMap<String, Object> toComponentCard(Component comp) {
+		LinkedHashMap<String, Object> memoryInfo = getMemoryInfo(comp);
+		LinkedHashMap<String, Object> card = new LinkedHashMap<>();
+		String compId = reverseComponentIdCache.get(comp);
+		card.put("comp_id", compId);
+		card.put("circuit_name",
+			project.getCurrentCircuit() == null ? "" : project.getCurrentCircuit().getName());
+		card.put("factory_name", comp.getFactory().getName());
+		card.put("label", getComponentLabel(comp));
+		card.put("x", comp.getLocation().getX());
+		card.put("y", comp.getLocation().getY());
+		card.put("is_memory", memoryInfo.get("isMemory"));
+		if (Boolean.TRUE.equals(memoryInfo.get("isMemory"))) {
+			card.put("addr_bits", memoryInfo.get("addrBits"));
+			card.put("data_bits", memoryInfo.get("dataBits"));
+			card.put("capacity", memoryInfo.get("capacity"));
+		}
+		card.put("aliases", collectAliases(comp));
+		card.put("neighbor_hints", collectNeighborHints(comp, 4));
+		String label = getComponentLabel(comp);
+		String humanName = (label.isEmpty() ? comp.getFactory().getName() : label) + " @("
+			+ comp.getLocation().getX() + "," + comp.getLocation().getY() + ")";
+		card.put("human_name", humanName);
+		card.put("fingerprint", makeFingerprint(comp, memoryInfo));
+		return card;
 	}
 
 	private static final class TextCandidate {
@@ -575,6 +782,216 @@ public class LogisimSessionContext implements AutoCloseable {
 		}
 		project.setCurrentCircuit(circuit);
 		refreshComponentCache();
+	}
+
+	public List<LinkedHashMap<String, Object>> listComponents(
+		String factoryName, String label, Boolean isMemory, Integer addrBits, Integer dataBits) {
+		Circuit circuit = project.getCurrentCircuit();
+		if (circuit == null) {
+			throw new IllegalArgumentException("No active circuit.");
+		}
+
+		List<LinkedHashMap<String, Object>> result = new ArrayList<>();
+		for (Component comp : circuit.getNonWires()) {
+			LinkedHashMap<String, Object> card = toComponentCard(comp);
+			if (factoryName != null && !factoryName.trim().isEmpty()) {
+				String fn = (String) card.get("factory_name");
+				if (!fn.equalsIgnoreCase(factoryName.trim())) {
+					continue;
+				}
+			}
+			if (label != null && !label.trim().isEmpty()) {
+				String lbl = (String) card.get("label");
+				if (lbl == null || !lbl.equals(label.trim())) {
+					continue;
+				}
+			}
+			if (isMemory != null && !Objects.equals(card.get("is_memory"), isMemory)) {
+				continue;
+			}
+			if (addrBits != null
+				&& (!card.containsKey("addr_bits")
+					|| !Objects.equals(card.get("addr_bits"), addrBits))) {
+				continue;
+			}
+			if (dataBits != null
+				&& (!card.containsKey("data_bits")
+					|| !Objects.equals(card.get("data_bits"), dataBits))) {
+				continue;
+			}
+			result.add(card);
+		}
+
+		result.sort(
+			Comparator.<LinkedHashMap<String, Object>, Integer>comparing(c -> (Integer) c.get("x"))
+				.thenComparing(c -> (Integer) c.get("y"))
+				.thenComparing(c -> (String) c.get("factory_name"))
+				.thenComparing(c -> (String) c.get("label")));
+		return result;
+	}
+
+	private List<Component> resolveCandidatesByTarget(String target) {
+		if (target == null || target.trim().isEmpty()) {
+			return new ArrayList<>();
+		}
+		String trimmed = target.trim();
+		List<Component> fromLabel = componentCache.get(trimmed);
+		if (fromLabel != null && !fromLabel.isEmpty()) {
+			return new ArrayList<>(fromLabel);
+		}
+
+		Component prefixed = findByPrefixedName(trimmed);
+		if (prefixed != null) {
+			List<Component> one = new ArrayList<>();
+			one.add(prefixed);
+			return one;
+		}
+
+		Circuit circuit = project.getCurrentCircuit();
+		List<Component> matches = new ArrayList<>();
+		if (circuit == null) {
+			return matches;
+		}
+		for (Component comp : circuit.getNonWires()) {
+			if (comp.getFactory().getName().equalsIgnoreCase(trimmed)) {
+				matches.add(comp);
+			}
+		}
+		return matches;
+	}
+
+	private List<Component> applyResolveFilters(List<Component> candidates, String factoryName,
+		String label, Boolean isMemory, Integer addrBits, Integer dataBits) {
+		List<Component> filtered = new ArrayList<>();
+		for (Component comp : candidates) {
+			if (factoryName != null && !factoryName.trim().isEmpty()
+				&& !comp.getFactory().getName().equalsIgnoreCase(factoryName.trim())) {
+				continue;
+			}
+			if (label != null && !label.trim().isEmpty()
+				&& !getComponentLabel(comp).equals(label.trim())) {
+				continue;
+			}
+
+			LinkedHashMap<String, Object> mem = getMemoryInfo(comp);
+			if (isMemory != null && !Objects.equals(mem.get("isMemory"), isMemory)) {
+				continue;
+			}
+			if (addrBits != null
+				&& (!Boolean.TRUE.equals(mem.get("isMemory"))
+					|| !Objects.equals(mem.get("addrBits"), addrBits))) {
+				continue;
+			}
+			if (dataBits != null
+				&& (!Boolean.TRUE.equals(mem.get("isMemory"))
+					|| !Objects.equals(mem.get("dataBits"), dataBits))) {
+				continue;
+			}
+			filtered.add(comp);
+		}
+		return filtered;
+	}
+
+	public LinkedHashMap<String, Object> resolveComponent(String target, String factoryName,
+		String label, Boolean isMemory, Integer addrBits, Integer dataBits, Integer index,
+		String sort) {
+		Circuit circuit = project.getCurrentCircuit();
+		if (circuit == null) {
+			throw new IllegalArgumentException("No active circuit.");
+		}
+
+		List<Component> seed;
+		if (target != null && !target.trim().isEmpty()) {
+			seed = resolveCandidatesByTarget(target);
+		} else {
+			seed = new ArrayList<>();
+			for (Component comp : circuit.getNonWires()) {
+				seed.add(comp);
+			}
+		}
+
+		List<Component> filtered =
+			applyResolveFilters(seed, factoryName, label, isMemory, addrBits, dataBits);
+
+		Comparator<Component> comparator =
+			Comparator.comparingInt((Component c) -> c.getLocation().getX())
+				.thenComparingInt(c -> c.getLocation().getY());
+		if (sort != null && sort.equalsIgnoreCase("top_to_bottom")) {
+			comparator = Comparator.comparingInt((Component c) -> c.getLocation().getY())
+							 .thenComparingInt(c -> c.getLocation().getX());
+		}
+		filtered.sort(comparator);
+
+		LinkedHashMap<String, Object> result = new LinkedHashMap<>();
+		if (filtered.isEmpty()) {
+			throw new IllegalArgumentException("No component matches resolve_component filters.");
+		}
+
+		if (index != null) {
+			if (index < 0 || index >= filtered.size()) {
+				throw new IllegalArgumentException(
+					"index out of range for resolve_component candidates: " + index);
+			}
+			Component chosen = filtered.get(index);
+			result.put("resolved", true);
+			result.put("comp_id", reverseComponentIdCache.get(chosen));
+			result.put("component", toComponentCard(chosen));
+			return result;
+		}
+
+		if (filtered.size() == 1) {
+			Component chosen = filtered.get(0);
+			result.put("resolved", true);
+			result.put("comp_id", reverseComponentIdCache.get(chosen));
+			result.put("component", toComponentCard(chosen));
+			return result;
+		}
+
+		List<LinkedHashMap<String, Object>> candidates = new ArrayList<>();
+		for (Component comp : filtered) {
+			candidates.add(toComponentCard(comp));
+		}
+		result.put("resolved", false);
+		result.put("reason", "multiple candidates matched");
+		result.put("candidate_count", candidates.size());
+		result.put("candidates", candidates);
+		result.put("hint", "Provide index or more filters such as addr_bits/data_bits/label.");
+		return result;
+	}
+
+	public LinkedHashMap<String, Object> getComponentInfoById(String compId) {
+		Component comp = requireComponentById(compId);
+		LinkedHashMap<String, Object> info = new LinkedHashMap<>();
+		info.put("comp_id", compId);
+		info.put("type", comp.getFactory().getName());
+		info.put("label", getComponentLabel(comp));
+		LinkedHashMap<String, Object> memoryInfo = getMemoryInfo(comp);
+		info.put("isMemory", memoryInfo.get("isMemory"));
+		if (Boolean.TRUE.equals(memoryInfo.get("isMemory"))) {
+			info.put("addrBits", memoryInfo.get("addrBits"));
+			info.put("dataBits", memoryInfo.get("dataBits"));
+			info.put("capacity", memoryInfo.get("capacity"));
+		}
+		info.put("x", comp.getLocation().getX());
+		info.put("y", comp.getLocation().getY());
+		return info;
+	}
+
+	public LinkedHashMap<String, Object> describeComponent(String compId) {
+		Component comp = requireComponentById(compId);
+		LinkedHashMap<String, Object> card = toComponentCard(comp);
+		LinkedHashMap<String, Object> description = new LinkedHashMap<>();
+		description.put("comp_id", compId);
+		description.put("human_name", card.get("human_name"));
+		description.put("summary",
+			"type=" + card.get("factory_name") + ", label='" + card.get("label") + "', location=("
+				+ card.get("x") + "," + card.get("y") + ")");
+		description.put("component", card);
+		description.put("recommended_usage",
+			Boolean.TRUE.equals(card.get("is_memory"))
+				? "Use load_memory_by_id for deterministic memory loading."
+				: "Use by-id value APIs to avoid label ambiguity.");
+		return description;
 	}
 
 	public Map<String, List<String>> getIO() {
@@ -1009,6 +1426,43 @@ public class LogisimSessionContext implements AutoCloseable {
 		}
 	}
 
+	public void loadMemoryById(String compId, java.util.Map<String, Integer> entries) {
+		Component comp = requireComponentById(compId);
+		String factoryName = comp.getFactory().getName();
+		if (!factoryName.equals("ROM") && !factoryName.equals("RAM")) {
+			throw new IllegalArgumentException("Component '" + compId + "' is of type '"
+				+ factoryName
+				+ "', not ROM or RAM. This load_memory_by_id API supports ROM and RAM only.");
+		}
+
+		HexModel contents = resolveMemoryHexModel(comp, factoryName, compId);
+		long maxAddr = contents.getLastOffset();
+		int dataMask = (1 << contents.getValueWidth()) - 1;
+
+		for (java.util.Map.Entry<String, Integer> entry : entries.entrySet()) {
+			String addrStr = entry.getKey().trim();
+			long addr;
+			try {
+				addr = addrStr.startsWith("0x") || addrStr.startsWith("0X")
+					? Long.parseLong(addrStr.substring(2), 16)
+					: Long.parseLong(addrStr);
+			} catch (NumberFormatException e) {
+				throw new IllegalArgumentException("Invalid address format: " + addrStr);
+			}
+			if (addr < 0 || addr > maxAddr) {
+				throw new IllegalArgumentException("Address " + addrStr + " out of range [0, "
+					+ maxAddr + "] for component '" + compId + "'.");
+			}
+
+			int data = entry.getValue() & dataMask;
+			contents.fill(addr, 1, data);
+		}
+		if (!factoryName.equals("RAM")) {
+			project.getSimulator().requestPropagate();
+			waitForStability();
+		}
+	}
+
 	/**
 	 * Loads ROM/RAM contents from a txt file in Logisim hex format (v2.0 raw).
 	 */
@@ -1037,6 +1491,41 @@ public class LogisimSessionContext implements AutoCloseable {
 		}
 
 		HexModel contents = resolveMemoryHexModel(comp, factoryName, label);
+
+		File file = new File(txtPath);
+		if (!file.exists() || !file.isFile()) {
+			throw new IllegalArgumentException(
+				"txt_path does not exist or is not a file: " + txtPath);
+		}
+
+		try {
+			HexFile.open(contents, file);
+		} catch (IOException e) {
+			throw new IllegalArgumentException(
+				"Failed to load txt memory file. Expected Logisim hex format 'v2.0 raw'. "
+				+ "Details: " + e.getMessage());
+		}
+
+		if (!factoryName.equals("RAM")) {
+			project.getSimulator().requestPropagate();
+			waitForStability();
+		}
+	}
+
+	public void loadMemoryFromTxtById(String compId, String txtPath) {
+		if (txtPath == null || txtPath.trim().isEmpty()) {
+			throw new IllegalArgumentException("txt_path must not be empty.");
+		}
+
+		Component comp = requireComponentById(compId);
+		String factoryName = comp.getFactory().getName();
+		if (!factoryName.equals("ROM") && !factoryName.equals("RAM")) {
+			throw new IllegalArgumentException("Component '" + compId + "' is of type '"
+				+ factoryName
+				+ "', not ROM or RAM. This load_memory_by_id API supports ROM and RAM only.");
+		}
+
+		HexModel contents = resolveMemoryHexModel(comp, factoryName, compId);
 
 		File file = new File(txtPath);
 		if (!file.exists() || !file.isFile()) {

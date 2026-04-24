@@ -25,7 +25,12 @@ All requests must include a `req_id` (String) to match responses asynchronously.
 | `get_screenshot` | `width`? (Int), `height`? (Int) | Render the circuit. Response is a **Binary Frame**. |
 | `check_value` | `target` (String), `expected` (String) | Assert that a component's value matches the expected value. |
 | `get_component_info` | `target` (String) | Get component type and memory metadata (if available). |
+| `get_component_info_by_id` | `comp_id` (String) | Get component metadata by stable id in current circuit snapshot. |
+| `describe_component` | `comp_id` (String) | Get human-readable component card for LLM/tooling disambiguation. |
+| `list_components` | `factory_name`? (String), `label`? (String), `is_memory`? (Bool), `addr_bits`? (Int), `data_bits`? (Int) | Enumerate components with comp_id and locator metadata. |
+| `resolve_component` | `target`? (String), plus optional filters (`factory_name`, `label`, `is_memory`, `addr_bits`, `data_bits`, `index`, `sort`) | Resolve to one comp_id or return candidates with hints. |
 | `load_memory` | `target` (String), `txt_path` (String) | Load ROM contents from a txt file in Logisim hex format (`v2.0 raw`). |
+| `load_memory_by_id` | `comp_id` (String), `txt_path` (String) | Deterministic memory load by comp_id (no label ambiguity). |
 | `run_until_stable_then_tick` | `target` (String), `timeout_second` (Number), `k`? (Int), `stable_samples`? (Int), `poll_ms`? (Int) | Reset + run continuous clock at 4.1kHz until target is stable, then execute extra `k` ticks. |
 
 > [!IMPORTANT]
@@ -48,6 +53,73 @@ All requests must include a `req_id` (String) to match responses asynchronously.
 When `get_screenshot` is called, the server will immediately transmit a **Binary Frame** containing raw PNG image bytes.
 
 ## 🧠 Memory APIs
+
+> Compatibility note:
+> - Existing actions and payload semantics are kept unchanged.
+> - New by-id actions are additive and recommended for ambiguous circuits.
+
+### Recommended non-ambiguous flow
+
+1. `list_components` with memory filters
+2. `resolve_component` to obtain one `comp_id`
+3. optional `describe_component` for human/LLM confirmation
+4. `load_memory_by_id` for deterministic write
+
+### `list_components`
+
+Request example:
+```json
+{
+  "action": "list_components",
+  "is_memory": true,
+  "req_id": "list-1"
+}
+```
+
+Response payload item example:
+```json
+{
+  "comp_id": "复杂的MIPS_RAM存储器测试电路:ROM:470:650:_:1",
+  "factory_name": "ROM",
+  "label": "",
+  "is_memory": true,
+  "addr_bits": 9,
+  "data_bits": 32,
+  "x": 470,
+  "y": 650,
+  "human_name": "ROM @(470,650)",
+  "neighbor_hints": ["访问期望值存储器的次数", "期望值"],
+  "fingerprint": "61bcba96"
+}
+```
+
+### `resolve_component`
+
+Request example:
+```json
+{
+  "action": "resolve_component",
+  "factory_name": "ROM",
+  "is_memory": true,
+  "addr_bits": 9,
+  "data_bits": 32,
+  "sort": "top_to_bottom",
+  "index": 0,
+  "req_id": "resolve-1"
+}
+```
+
+### `load_memory_by_id`
+
+Request example:
+```json
+{
+  "action": "load_memory_by_id",
+  "comp_id": "复杂的MIPS_RAM存储器测试电路:ROM:470:650:_:1",
+  "txt_path": "D:/.../MIPS RAM存储器测试用例——修改后的写入数据.txt",
+  "req_id": "load-by-id-1"
+}
+```
 
 ### `get_component_info`
 
